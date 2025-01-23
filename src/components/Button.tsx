@@ -1,10 +1,15 @@
 import React from 'react';
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps {
+  children?: React.ReactNode;
   variant?: 'primary' | 'secondary' | 'ghost' | 'cancel' | 'back' | 'login';
-  size?: 'default' | 'icon' | 'large' | 'small' | 'medium';
+  size?: 'default' | 'icon' | 'large' | 'medium' | 'small';
   fullWidth?: boolean;
+  onClick?: () => void;
+  className?: string;
   icon?: string;
+  type?: 'button' | 'submit' | 'reset';
+  disabled?: boolean;
 }
 
 export function Button({ 
@@ -24,6 +29,7 @@ export function Button({
     ghost: 'bg-transparent hover:bg-gray-100',
     cancel: 'bg-transparent hover:bg-gray-100',
     back: 'bg-transparent text-white',
+    login: 'bg-yellow-400 hover:bg-yellow-500 text-white'
   };
 
   const sizes = {
@@ -43,7 +49,9 @@ export function Button({
         ${fullWidth ? 'w-full' : ''} 
         ${className}
       `}
-      {...props}
+      onClick={props.onClick}
+      type={props.type}
+      disabled={props.disabled}
     >
       {icon && (
         <img 

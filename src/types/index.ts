@@ -47,15 +47,17 @@ export interface QRScannerProps {
   onScan: (data: string) => void;
 }
 
-// 컴포넌트 공통 타입
-export interface ButtonProps {
-  children: React.ReactNode;
-  variant?: 'primary' | 'secondary';
-  fullWidth?: boolean;
-  onClick?: () => void;
-  type?: 'button' | 'submit' | 'reset';
-  disabled?: boolean;
-}
+// export interface ButtonProps {
+//   children: React.ReactNode;
+//   size?: 'default' | 'small' | 'medium' | 'large' | 'icon';
+//   icon?: string;
+//   variant?: 'primary' | 'secondary' | 'ghost' | 'cancel' | 'back' | 'login';
+//   fullWidth?: boolean;
+//   onClick?: () => void;
+//   type?: 'button' | 'submit' | 'reset';
+//   disabled?: boolean;
+//   className?: string;
+// }
 
 // 시간 그리드 관련 타입
 export interface TimeGridEntry {

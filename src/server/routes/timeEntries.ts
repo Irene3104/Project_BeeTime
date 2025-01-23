@@ -2,8 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db';
 import { validateRequest } from '../middleware/validateRequest';
-import { toNSWTime, fromNSWTime } from '../../utils/dateTime';
-
+import { toNSWTime, fromNSWTime, getCurrentNSWTime } from '../../utils/dateTime';
 const router = Router();
 
 const timeEntrySchema = z.object({

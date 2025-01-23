@@ -19,7 +19,7 @@ export function Login() {
     email: '',
     password: ''
   });
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(false);
   const googleLoginRef = useRef<HTMLDivElement>(null);
 

@@ -16,7 +16,7 @@ export const Signup = () => {
         locationId: ''
     });
     // 지점 목록 상태 관리
-    const [locations, setLocations] = useState([]);
+    const [locations, setLocations] = useState<Location[]>([]);
      // 일반 에러 메시지 상태
     const [error, setError] = useState('');
     // 회원가입 성공 모달 표시 상태

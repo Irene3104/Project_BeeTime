@@ -1,14 +1,6 @@
-interface TimeGridProps {
-  entries: Array<{
-    date: string;
-    clockIn: string;
-    breakStart?: string;
-    breakEnd?: string;
-    clockOut?: string;
-  }>;
-}
+import { TimeGridEntry } from '../types/index';
 
-export function TimeGrid({ entries }: TimeGridProps) {
+export function TimeGrid({ entries }: TimeGridEntry) {
   return (
     <div className="w-full overflow-x-auto">
       <table className="w-full min-w-[600px]">

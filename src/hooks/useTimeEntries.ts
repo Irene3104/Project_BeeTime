@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { api } from '../lib/api';
-import { TimeEntry } from '../types';
+import { TimeGridEntry } from '../types/index';
 
 export function useTimeEntries() {
   const queryClient = useQueryClient();
@@ -8,7 +8,7 @@ export function useTimeEntries() {
   const entries = useQuery('timeEntries', () => api.timeEntries.getAll());
 
   const createEntry = useMutation(
-    (entry: Omit<TimeEntry, 'id'>) => api.timeEntries.create(entry),
+    (entry: Omit<TimeGridEntry, 'id'>) => api.timeEntries.create(entry),
     {
       onSuccess: () => {
         queryClient.invalidateQueries('timeEntries');
@@ -17,7 +17,7 @@ export function useTimeEntries() {
   );
 
   const updateEntry = useMutation(
-    ({ id, entry }: { id: string; entry: Partial<TimeEntry> }) =>
+    ({ id, entry }: { id: string; entry: Partial<TimeGridEntry> }) =>
       api.timeEntries.update(id, entry),
     {
       onSuccess: () => {

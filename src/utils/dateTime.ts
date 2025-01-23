@@ -1,10 +1,10 @@
 import { format } from 'date-fns';
-import { toZonedTime, getTimezoneOffset } from 'date-fns-tz';
+import { toZonedTime, getTimezoneOffset, formatInTimeZone } from 'date-fns-tz';
 
 const NSW_TIMEZONE = 'Australia/Sydney';
 
 export const toNSWTime = (date: Date): Date => {
-  return toZonedTime(date, NSW_TIMEZONE);
+  return new Date(formatInTimeZone(date, NSW_TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX"));
 };
 
 export const fromNSWTime = (date: Date): Date => {
