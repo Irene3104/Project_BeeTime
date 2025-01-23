@@ -1,103 +1,93 @@
-// schema.prisma
-
-datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
-}
-
 generator client {
   provider = "prisma-client-js"
 }
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
 model User {
-  id               String        @id @default(uuid())
-  email            String        @unique
-  password         String?
-  name             String?
-  role             String        @default("EMPLOYEE")
-  isProfileComplete Boolean      @default(false)
-  locationId       Int?
-  location         Location?     @relation(fields: [locationId], references: [id])
-  locationUsers    LocationUser[]
-  timeRecords      TimeRecord[]
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                String         @id @default(uuid())
+  email             String         @unique
+  password          String?
+  name              String?
+  role              String         @default("EMPLOYEE")
+  isProfileComplete Boolean        @default(false)
+  locationId        Int?
+  createdAt         DateTime       @default(now()) @db.Timestamp(6)
+  updatedAt         DateTime       @updatedAt @db.Timestamp(6)
+  locationUsers     LocationUser[]
+  timeRecords       TimeRecord[]
+  location          Location?      @relation(fields: [locationId], references: [id])
 
   @@index([locationId])
 }
 
 model Location {
-  id            Int           @id @default(autoincrement())
-  name          String
-  branch        String?
-  company       String
+  id            Int            @id @default(autoincrement())
+  name          String         @db.VarChar(255)
+  branch        String?        @db.VarChar(100)
+  company       String         @db.VarChar(255)
   address       String
-  users         User[]
+  createdAt     DateTime       @default(now()) @db.Timestamp(6)
+  updatedAt     DateTime       @updatedAt @db.Timestamp(6)
   locationUsers LocationUser[]
   timeRecords   TimeRecord[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  users         User[]
 }
 
-// 사용자-가게 연결 (다대다 관계)
-// 한 직원이 여러 가게에서 근무할 수 있고, 한 지점에 여러 직원이 있을 수 있음
 model LocationUser {
   id         Int       @id @default(autoincrement())
-  userId     String    // String으로 변경 (User의 id가 String 타입이므로)
+  userId     String
   locationId Int
-  startDate  DateTime  @default(now())
-  endDate    DateTime?
-
-  user     User     @relation(fields: [userId], references: [id])
-  location Location @relation(fields: [locationId], references: [id])
+  startDate  DateTime  @default(now()) @db.Timestamp(6)
+  endDate    DateTime? @db.Timestamp(6)
+  location   Location  @relation(fields: [locationId], references: [id])
+  user       User      @relation(fields: [userId], references: [id])
 
   @@unique([userId, locationId, startDate])
 }
 
-// 근무 기록
 model TimeRecord {
-  id         Int       @id @default(autoincrement())
-  userId     String    // String으로 변경
+  id         Int           @id @default(autoincrement())
+  userId     String
   locationId Int
-  date       DateTime
-  clockIn    DateTime
-  clockOut   DateTime?
-  status     String    @default("active")
+  date       DateTime      @db.Date
+  clockIn    DateTime      @db.Timestamp(6)
+  clockOut   DateTime?     @db.Timestamp(6)
+  status     String        @default("active") @db.VarChar(50)
   note       String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  user         User          @relation(fields: [userId], references: [id])
-  location     Location      @relation(fields: [locationId], references: [id])
-  breaks       BreakRecord[]
+  createdAt  DateTime      @default(now()) @db.Timestamp(6)
+  updatedAt  DateTime      @updatedAt @db.Timestamp(6)
+  breaks     BreakRecord[]
+  location   Location      @relation(fields: [locationId], references: [id])
+  user       User          @relation(fields: [userId], references: [id])
 
   @@unique([userId, date])
   @@index([date])
 }
 
-// 휴식 기록
 model BreakRecord {
-  id           Int       @id @default(autoincrement())
+  id           Int        @id @default(autoincrement())
   timeRecordId Int
-  startTime    DateTime
-  endTime      DateTime?
-  type         String    @default("lunch")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
+  startTime    DateTime   @db.Timestamp(6)
+  endTime      DateTime?  @db.Timestamp(6)
+  type         String     @default("lunch") @db.VarChar(50)
+  createdAt    DateTime   @default(now()) @db.Timestamp(6)
+  updatedAt    DateTime   @updatedAt @db.Timestamp(6)
   timeRecord   TimeRecord @relation(fields: [timeRecordId], references: [id])
 
   @@index([timeRecordId])
 }
 
-// 일일 근무 통계
-// 실시간 통계 계산 부하를 줄이기 위한 집계 테이블
 model WorkSummary {
   id           Int      @id @default(autoincrement())
-  userId       String   // String으로 변경
+  userId       String
   locationId   Int
-  date         DateTime
+  date         DateTime @db.Date
   totalMinutes Int
   breakMinutes Int
-  status       String
-  createdAt    DateTime @default(now())
+  status       String   @db.VarChar(50)
+  createdAt    DateTime @default(now()) @db.Timestamp(6)
 }
