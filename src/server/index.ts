@@ -13,10 +13,15 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: [
+    'https://project-bee-time-sandy.vercel.app',
+    'http://localhost:5173',  // 개발 환경
+    'http://localhost:3000'   // 로컬 서버
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Authorization']
 }));
 app.use(express.json());
 

@@ -104,9 +104,10 @@ export const Signup = () => {
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
                 body: JSON.stringify({
                     ...formData,
-                    locationId: parseInt(formData.locationId) // locationId를 숫자로 변환
+                    locationId: parseInt(formData.locationId)
                 }),
             });
 
