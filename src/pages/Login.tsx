@@ -4,6 +4,7 @@ import { Button } from '../components/Button';
 import GoogleLogo from '../assets/logo_goauth.png';
 import { useState, useEffect, useRef } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
+import { useGoogleLogin } from '@react-oauth/google';
 
 export function Login() {
   const navigate = useNavigate();
@@ -101,6 +102,13 @@ export function Login() {
       }
     }
   };
+
+  const googleLogin = useGoogleLogin({
+    onSuccess: tokenResponse => console.log(tokenResponse),
+    onError: errorResponse => console.log(errorResponse),
+    flow: 'auth-code',
+    redirect_uri: 'https://project-bee-time-sandy.vercel.app/auth/google/callback'  // 배포된 URL
+  });
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-[#FFFBF6]">
