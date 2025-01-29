@@ -1,6 +1,10 @@
 import { TimeGridEntry } from '../types/index';
 
-export function TimeGrid({ entries }: TimeGridEntry) {
+interface TimeGridProps {
+  entries: TimeGridEntry[];
+}
+
+export function TimeGrid({ entries }: TimeGridProps) {
   return (
     <div className="w-full overflow-x-auto">
       <table className="w-full min-w-[600px]">
@@ -16,11 +20,11 @@ export function TimeGrid({ entries }: TimeGridEntry) {
         <tbody>
           {entries.map((entry, index) => (
             <tr key={index} className="border-b border-brown-100">
-              <td className="py-2 px-4">{entry.date}</td>
-              <td className="py-2 px-4">{entry.clockIn}</td>
-              <td className="py-2 px-4">{entry.breakStart || '-'}</td>
-              <td className="py-2 px-4">{entry.breakEnd || '-'}</td>
-              <td className="py-2 px-4">{entry.clockOut || '-'}</td>
+              <td className="py-2 px-4">{entry.date.toLocaleDateString()}</td>
+              <td className="py-2 px-4">{entry.clockIn?.toLocaleTimeString() || '-'}</td>
+              <td className="py-2 px-4">{entry.breakStart?.toLocaleTimeString() || '-'}</td>
+              <td className="py-2 px-4">{entry.breakEnd?.toLocaleTimeString() || '-'}</td>
+              <td className="py-2 px-4">{entry.clockOut?.toLocaleTimeString() || '-'}</td>
             </tr>
           ))}
         </tbody>

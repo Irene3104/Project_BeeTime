@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import bcrypt from 'bcryptjs';
+import  bcrypt from 'bcryptjs';
 import { prisma } from '../db';
 import { validateRequest } from '../middleware/validateRequest';
 import jwt from 'jsonwebtoken';

@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { toZonedTime, getTimezoneOffset, formatInTimeZone } from 'date-fns-tz';
+import { getTimezoneOffset, formatInTimeZone } from 'date-fns-tz';
 
 const NSW_TIMEZONE = 'Australia/Sydney';
 

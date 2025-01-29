@@ -1,34 +1,44 @@
-// import { useQuery, useMutation, useQueryClient } from 'react-query';
-// import { api } from '../lib/api';
-// import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { api } from '../lib/api';
+import { LoginCredentials, AuthResponse } from '../types/index';
 
-// export function useAuth() {
-//   const queryClient = useQueryClient();
-//   const navigate = useNavigate();
+export const useAuth = () => {
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
 
-//   const login = useMutation(
-//     (credentials: { email: string; password: string }) =>
-//       api.auth.login(credentials.email, credentials.password),
-//     {
-//       onSuccess: (data) => {
-//         localStorage.setItem('token', data.token);
-//         queryClient.setQueryData('user', data.user);
-//         navigate('/dashboard');
-//       },
-//     }
-//   );
+  const handleAuthSuccess = (data: AuthResponse) => {
+    const storage = localStorage.getItem('rememberMe') ? localStorage : sessionStorage;
+    storage.setItem('token', data.token);
+    storage.setItem('user', JSON.stringify(data.user));
+  };
 
-//   const logout = () => {
-//     localStorage.removeItem('token');
-//     queryClient.setQueryData('user', null);
-//     navigate('/');
-//   };
+  const login = async (credentials: LoginCredentials) => {
+    try {
+      const response: Response = await api.auth.login(credentials);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error);
+      }
+      
+      const data: AuthResponse = await response.json();
+      handleAuthSuccess(data);
+      navigate('/dashboard');
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('로그인 중 오류가 발생했습니다.');
+      }
+    }
+  };
 
-//   const user = useQuery('user', () => {
-//     const token = localStorage.getItem('token');
-//     if (!token) return null;
-//     return api.auth.me();
-//   });
+  const logout = () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    navigate('/login');
+  };
 
-//   return { login, logout, user: user.data, isLoading: user.isLoading };
-// }
+  return { login, logout, error };
+};

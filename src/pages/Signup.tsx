@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Location } from '../types/index';  // SignupRequest 제거
 import { AlertModal } from '../components/AlertModal';
 import BackButtonIcon from '../assets/btn_icon_arrow.png';
 import DownArrowIcon from '../assets/icon_under_arrow.png';
@@ -125,7 +126,11 @@ export const Signup = () => {
             // 회원가입 성공 모달 표시
             setShowSuccessModal(true);
         } catch (error) {
-            setError(error.message);
+            if (error instanceof Error) {
+                setError(error.message);
+            } else {
+                setError('An unexpected error occurred');
+            }
         }
     };
 
@@ -205,8 +210,8 @@ export const Signup = () => {
                         >
                             <option value="" disabled>Work Place</option>
                              {/* 지점 목록을 옵션으로 표시 */}
-                            {locations.map((location) => (
-                                <option key={location.id} value={location.id}>
+                            {locations.map((location: Location) => (
+                                <option key={location.id.toString()} value={location.id}>
                                     {location.name} {location.branch ? `(${location.branch})` : ''}
                                 </option>
                             ))}
