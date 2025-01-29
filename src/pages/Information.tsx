@@ -5,6 +5,7 @@ import BackButtonIcon from '../assets/btn_icon_arrow.png';
 import DownArrowIcon from '../assets/icon_under_arrow.png';
 import { Button } from '../components/Button';
 import { Logo } from '../components/Logo.tsx';
+import { API_URL } from '../config/constants.ts';
 
 export const Information = () => {
   const navigate = useNavigate();
@@ -49,7 +50,7 @@ const validateForm = () => {
 
   // 컴포넌트 마운트 시 지점 목록 가져오기
   useEffect(() => {
-    fetch('http://localhost:3000/locations')
+    fetch(`${API_URL}/locations`)
       .then(res => res.json())
       .then(data => setLocations(data))
       .catch(error => console.error('지점 목록 조회 실패:', error));
@@ -68,7 +69,7 @@ const validateForm = () => {
 
     try {
       // 사용자 정보 업데이트 API 호출
-      const response = await fetch(`http://localhost:3000/auth/update-user-info`, {
+      const response = await fetch(`${API_URL}/auth/update-user-info`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

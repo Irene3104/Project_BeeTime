@@ -5,6 +5,8 @@ import GoogleLogo from '../assets/logo_goauth.png';
 import { useState, useEffect, useRef } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
 import { useGoogleLogin } from '@react-oauth/google';
+import { API_URL } from '../config/constants';
+import { GOOGLE_CALLBACK_URL } from '../config/constants';
 
 export function Login() {
   const navigate = useNavigate();
@@ -28,7 +30,7 @@ export function Login() {
     e.preventDefault();
     
     try {
-      const response = await fetch('http://localhost:3000/auth/login', {
+      const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,7 +69,7 @@ export function Login() {
 
   const handleGoogleSuccess = async (credentialResponse: any) => {
     try {
-      const response = await fetch('http://localhost:3000/auth/google', {
+      const response = await fetch(`${API_URL}/auth/google`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -90,7 +92,11 @@ export function Login() {
         navigate('/dashboard');
       }
     } catch (error) {
-      setError(error.message);
+      if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError('An unknown error occurred.');
+      }
     }
   };
 
@@ -101,13 +107,14 @@ export function Login() {
         button.click();
       }
     }
+    googleLogin();
   };
 
   const googleLogin = useGoogleLogin({
     onSuccess: tokenResponse => console.log(tokenResponse),
     onError: errorResponse => console.log(errorResponse),
     flow: 'auth-code',
-    redirect_uri: 'https://project-bee-time-sandy.vercel.app/auth/google/callback'  // 배포된 URL
+    redirect_uri: GOOGLE_CALLBACK_URL
   });
 
   return (

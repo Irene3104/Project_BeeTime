@@ -6,6 +6,7 @@ import BackButtonIcon from '../assets/btn_icon_arrow.png';
 import DownArrowIcon from '../assets/icon_under_arrow.png';
 import { Logo } from '../components/Logo';
 import { Button } from '../components/Button';
+import { API_URL } from '../config/constants';
 
 export const Signup = () => {
     const navigate = useNavigate();
@@ -34,7 +35,7 @@ export const Signup = () => {
     useEffect(() => {
         const fetchLocations = async () => {
             try {
-                const response = await fetch('http://localhost:3000/locations');
+                const response = await fetch(`${API_URL}/locations`);
                 const data = await response.json();
                 setLocations(data);
             } catch (error) {
@@ -100,7 +101,7 @@ export const Signup = () => {
 
         try {
             // 일반 회원가입 API 호출
-            const response = await fetch('http://localhost:3000/auth/signup', {
+            const response = await fetch(`${API_URL}/auth/signup`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
