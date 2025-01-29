@@ -165,6 +165,7 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 router.post('/google', async (req, res) => {
   try {
     // 1. 구글에서 받은 인증 정보 확인
+    console.log('Received Google login request');
     const { credential } = req.body;
     const ticket = await client.verifyIdToken({
       idToken: credential,
@@ -172,7 +173,10 @@ router.post('/google', async (req, res) => {
     });
     
     const payload = ticket.getPayload();
+    console.log('Google token payload:', payload);
+
     if (!payload || !payload.email) {
+      console.error('Invalid token');
       return res.status(400).json({ error: '유효하지 않은 토큰입니다.' });
     }
     
@@ -183,6 +187,7 @@ router.post('/google', async (req, res) => {
 
      // 3. 신규 사용자면 기본 정보로 계정 생성
     if (!user) {
+      console.log('Creating new user');
       user = await prisma.user.create({
         data: {
           email: payload.email,
@@ -201,6 +206,7 @@ router.post('/google', async (req, res) => {
     );
 
     // 5. 프로필 완성 여부에 따라 다른 응답 전송
+    console.log('User authenticated, sending response');
     res.json({
       token,
       user,

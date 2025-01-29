@@ -69,6 +69,7 @@ export function Login() {
 
   const handleGoogleSuccess = async (credentialResponse: any) => {
     try {
+      console.log('Google login successful, credential:', credentialResponse);
       const response = await fetch(`${API_URL}/auth/google`, {
         method: 'POST',
         headers: {
@@ -80,6 +81,8 @@ export function Login() {
       });
 
       const data = await response.json();
+      console.log('Server response:', data);
+      
       if (!response.ok) throw new Error(data.error);
 
       const storage = rememberMe ? localStorage : sessionStorage;
@@ -92,6 +95,7 @@ export function Login() {
         navigate('/dashboard');
       }
     } catch (error) {
+      console.error('Error during Google login:', error);
       if (error instanceof Error) {
         setError(error.message);
       } else {
