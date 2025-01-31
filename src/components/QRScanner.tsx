@@ -16,11 +16,23 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   
   const verifyLocationAndRecord = async (placeId: string) => {
     try {
-      // Get current position
+      // First check if geolocation is available
+      if (!navigator.geolocation) {
+        throw new Error('Geolocation is not supported by your browser');
+      }
+
+      // Request permission explicitly first
+      const permissionResult = await navigator.permissions.query({ name: 'geolocation' });
+      
+      if (permissionResult.state === 'denied') {
+        throw new Error('Location access denied. Please enable location in your device settings.');
+      }
+
+      // Then get position
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
-          timeout: 5000,
+          timeout: 10000,
           maximumAge: 0
         });
       });
