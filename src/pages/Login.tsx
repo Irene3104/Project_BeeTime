@@ -2,11 +2,9 @@ import { Logo } from '../components/Logo';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/Button';
 import GoogleLogo from '../assets/logo_goauth.png';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
-import { useGoogleLogin } from '@react-oauth/google';
 import { API_URL } from '../config/constants';
-import { GOOGLE_CALLBACK_URL } from '../config/constants';
 
 export function Login() {
   const navigate = useNavigate();
@@ -24,7 +22,7 @@ export function Login() {
   });
   const [error, setError] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(false);
-  const googleLoginRef = useRef<HTMLDivElement>(null);
+  
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,21 +103,25 @@ export function Login() {
   };
 
   const handleGoogleButtonClick = () => {
-    if (googleLoginRef.current) {
-      const button = googleLoginRef.current.querySelector('div[role="button"]');
-      if (button instanceof HTMLElement) {
-        button.click();
-      }
+    console.log('Google 로그인 버튼 클릭됨');
+    const googleLoginDiv = document.querySelector('.google-login');
+    const button = googleLoginDiv?.querySelector('div[role="button"]');
+    if (button && button instanceof HTMLElement) {
+      button.click();
+    } else {
+      console.error('Google 로그인 버튼을 찾을 수 없습니다.');
     }
-    googleLogin();
   };
 
-  const googleLogin = useGoogleLogin({
-    onSuccess: tokenResponse => console.log(tokenResponse),
-    onError: errorResponse => console.log(errorResponse),
-    flow: 'auth-code',
-    redirect_uri: GOOGLE_CALLBACK_URL
-  });
+  const handleGoogleLoginSuccess = (response: any) => {
+    console.log('Google 로그인 성공:', response);
+    handleGoogleSuccess(response);
+  };
+
+  const handleGoogleLoginError = () => {
+    console.error('Google 로그인 실패');
+    setError('Google 로그인에 실패했습니다.');
+  };
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-[#FFFBF6]">
@@ -207,17 +209,20 @@ export function Login() {
           </div>
 
           {/* 소셜 로그인 버튼 */}
-          <div className="mt-6 flex justify-center">
+          <div className="mt-6 flex justify-center relative">
             <Button 
               variant="ghost"
               size="large"
               icon={GoogleLogo}
+              type="button"
+              aria-label="Google 로그인"
+              className="cursor-pointer"
               onClick={handleGoogleButtonClick}
             />
-            <div ref={googleLoginRef} className="hidden">
+            <div className="google-login absolute inset-0 opacity-0 pointer-events-auto">
               <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={() => setError('Google 로그인에 실패했습니다.')}
+                onSuccess={handleGoogleLoginSuccess}
+                onError={handleGoogleLoginError}
               />
             </div>
           </div>
