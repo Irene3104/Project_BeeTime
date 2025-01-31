@@ -12,8 +12,8 @@ interface QRScannerProps {
 
 export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   const [error, setError] = useState<string | null>(null);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-
+  const [scanning, setScanning] = useState(false);
+  
   const verifyLocationAndRecord = async (placeId: string) => {
     try {
       // Get current position
@@ -69,56 +69,72 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   };
 
   useEffect(() => {
-    // Check if the browser supports getUserMedia
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setError('Your browser does not support camera access');
-      return;
-    }
+    let html5QrcodeScanner: Html5QrcodeScanner;
 
-    // Request camera permission with specific constraints for mobile
-    navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment', // Prefer back camera
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    })
-      .then(stream => {
-        // Permission granted, initialize scanner
+    const initializeScanner = async () => {
+      try {
+        setScanning(true);
+        // First check for camera permissions
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: {
+            facingMode: 'environment'  // Prefer back camera
+          }
+        });
+        // Stop the stream immediately as Html5QrcodeScanner will request it again
         stream.getTracks().forEach(track => track.stop());
-        initializeScanner();
-      })
-      .catch(err => {
-        console.error('Camera permission error:', err);
-        if (err.name === 'NotAllowedError') {
-          setError('Please allow camera access to scan QR codes');
-        } else if (err.name === 'NotFoundError') {
-          setError('No camera found on your device');
-        } else {
-          setError('Failed to access camera. Please try again.');
-        }
-      });
-  }, []);
 
-  const initializeScanner = () => {
-    try {
-      const html5QrcodeScanner = new Html5QrcodeScanner(
-        "qr-reader",
-        { 
-          fps: 10, 
-          qrbox: 250,
-          aspectRatio: 1.0,
-          showTorchButtonIfSupported: true // Add flashlight button for Android
-        },
-        false
-      );
-      
-      html5QrcodeScanner.render(onScanSuccess, onScanError);
-    } catch (err) {
-      console.error('Scanner initialization error:', err);
-      setError('Failed to start QR scanner');
-    }
-  };
+        // Initialize scanner with more options
+        html5QrcodeScanner = new Html5QrcodeScanner(
+          "qr-reader",
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0,
+            showTorchButtonIfSupported: true,
+            rememberLastUsedCamera: true,
+            videoConstraints: {
+              facingMode: { exact: "environment" }
+            }
+          },
+          false
+        );
+
+        await html5QrcodeScanner.render(
+          async (decodedText) => {
+            console.log("QR Code detected:", decodedText);
+            const success = await verifyLocationAndRecord(decodedText);
+            if (success) {
+              html5QrcodeScanner.clear();
+              onScan();
+            }
+          },
+          (errorMessage) => {
+            console.log("QR Scan error:", errorMessage);
+          }
+        );
+
+        setScanning(true);
+      } catch (err) {
+        console.error('Scanner initialization error:', err);
+        if (err instanceof DOMException && err.name === 'NotAllowedError') {
+          setError('Camera access denied. Please allow camera access and try again.');
+        } else if (err instanceof DOMException && err.name === 'NotFoundError') {
+          setError('No camera found. Please ensure your device has a camera.');
+        } else {
+          setError(`Failed to start scanner: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+        setScanning(false);
+      }
+    };
+
+    initializeScanner();
+
+    return () => {
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear().catch(console.error);
+      }
+    };
+  }, []);
 
   const titles = {
     clockIn: 'Clock In',
@@ -128,24 +144,32 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black flex flex-col items-center justify-center p-4">
-      <button onClick={onClose} className="absolute top-4 right-4 text-white">
-        <X className="w-6 h-6" />
+    <div className="fixed inset-0 bg-black flex flex-col items-center justify-center z-50">
+      <button 
+        onClick={onClose}
+        className="absolute top-4 right-4 text-white"
+      >
+        <X size={24} />
       </button>
       
-      <h2 className="text-white mb-8">Scan QR Code for {titles[type]}</h2>
-      
+      <h2 className="text-white text-xl mb-8">
+        Scan QR Code for {titles[type]}
+      </h2>
+
       {error && (
-        <div className="bg-red-500 text-white p-2 rounded mb-4">
+        <div className="bg-red-500 text-white px-4 py-2 rounded mb-4 max-w-sm text-center">
           {error}
         </div>
       )}
 
-      <div className="border-2 border-white w-64 h-64 mb-8">
-        <div id="qr-reader" className="w-full h-full" />
-      </div>
+      <div id="qr-reader" className="w-full max-w-sm" />
 
-      <Button onClick={onClose}>Cancel</Button>
+      <button
+        onClick={onClose}
+        className="mt-8 px-6 py-2 bg-[#FDCF17] text-white rounded-full"
+      >
+        Cancel
+      </button>
     </div>
   );
 }
