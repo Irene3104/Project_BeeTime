@@ -16,14 +16,32 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   
   const verifyLocationAndRecord = async (placeId: string) => {
     try {
-      // Get position first
+      // First ensure we have location permission
+      if (!navigator.geolocation) {
+        throw new Error('Geolocation is not supported');
+      }
+
+      // Get current position with better error handling
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
-        });
+        navigator.geolocation.getCurrentPosition(
+          resolve,
+          (error) => {
+            console.error('Geolocation error:', error);
+            reject(new Error('Please enable location access and try again'));
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 20000, // Increased timeout
+            maximumAge: 0
+          }
+        );
       });
+
+      // Ensure placeId is a valid number
+      const locationId = parseInt(placeId, 10);
+      if (isNaN(locationId)) {
+        throw new Error('Invalid QR code');
+      }
 
       const response = await fetch(`${API_URL}/time-entries/verify-location`, {
         method: 'POST',
@@ -32,7 +50,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          placeId,
+          placeId: locationId, // Send as number instead of string
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           type,
@@ -40,19 +58,27 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         })
       });
 
-      // Check if response is JSON before parsing
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.indexOf("application/json") !== -1) {
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to record time');
-        }
-        return true;
-      } else {
-        throw new Error('Invalid response from server');
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        console.error('Response parsing error:', e);
+        throw new Error('Server communication error');
       }
+
+      if (!response.ok) {
+        if (response.status === 400) {
+          throw new Error(data.error || 'You must be at the workplace to register time');
+        } else if (response.status === 500) {
+          console.error('Server error details:', data);
+          throw new Error('Server error - please try again');
+        }
+        throw new Error(data.error || 'Failed to verify location');
+      }
+
+      return true;
     } catch (error) {
-      console.error('Verification error:', error);
+      console.error('Full error details:', error);
       setError(error instanceof Error ? error.message : 'Failed to verify location');
       return false;
     }

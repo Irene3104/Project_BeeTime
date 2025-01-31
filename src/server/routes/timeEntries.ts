@@ -83,77 +83,97 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     const { placeId, latitude, longitude, type, timestamp } = req.body;
     const userId = req.user!.id;
 
-    // 1. Verify place with Google Maps
-    const placeDetails = await googleMapsClient.placeDetails({
-      params: {
-        place_id: placeId,
-        key: process.env.GOOGLE_MAPS_API_KEY!
-      }
+    // Validate inputs
+    if (!placeId || !latitude || !longitude) {
+      return res.status(400).json({ error: 'Missing required location data' });
+    }
+
+    // Get location from database first
+    const location = await prisma.location.findUnique({
+      where: { id: parseInt(String(placeId)) }
     });
 
-    const place = placeDetails.data.result;
-    
-    // 2. Calculate distance
-    const distance = calculateDistance(
-      latitude,
-      longitude,
-      place.geometry.location.lat,
-      place.geometry.location.lng
-    );
+    if (!location) {
+      return res.status(400).json({ error: 'Invalid workplace location' });
+    }
 
-    // 3. Verify distance (100 meters)
-    if (distance > 100) {
-      return res.status(400).json({ 
-        error: 'You must be at the workplace to register time' 
+    try {
+      // Verify place with Google Maps
+      const placeDetails = await googleMapsClient.placeDetails({
+        params: {
+          place_id: location.placeId,
+          key: process.env.GOOGLE_MAPS_API_KEY!
+        }
       });
+
+      const place = placeDetails.data.result;
+      
+      // Calculate distance
+      const distance = calculateDistance(
+        latitude,
+        longitude,
+        place.geometry.location.lat,
+        place.geometry.location.lng
+      );
+
+      // Verify distance (100 meters)
+      if (distance > 100) {
+        return res.status(400).json({ 
+          error: 'You must be within 100 meters of the workplace to register time' 
+        });
+      }
+
+      // 4. Record time entry based on type
+      const nswTimestamp = fromNSWTime(new Date(timestamp));
+      
+      switch (type) {
+        case 'clockIn':
+          await prisma.timeRecord.create({
+            data: {
+              userId,
+              locationId: parseInt(placeId),
+              date: nswTimestamp,
+              clockIn: nswTimestamp
+            }
+          });
+          break;
+
+        case 'breakStart':
+          await prisma.breakRecord.create({
+            data: {
+              timeRecordId: (await getCurrentTimeRecord(userId))!.id,
+              startTime: nswTimestamp
+            }
+          });
+          break;
+
+        case 'breakEnd':
+          await prisma.breakRecord.updateMany({
+            where: {
+              timeRecordId: (await getCurrentTimeRecord(userId))!.id,
+              endTime: null
+            },
+            data: { endTime: nswTimestamp }
+          });
+          break;
+
+        case 'clockOut':
+          await prisma.timeRecord.update({
+            where: { id: (await getCurrentTimeRecord(userId))!.id },
+            data: { clockOut: nswTimestamp }
+          });
+          break;
+      }
+
+      res.json({ success: true });
+    } catch (googleError) {
+      console.error('Google Maps API error:', googleError);
+      return res.status(500).json({ error: 'Failed to verify location' });
     }
 
-    // 4. Record time entry based on type
-    const nswTimestamp = fromNSWTime(new Date(timestamp));
-    
-    switch (type) {
-      case 'clockIn':
-        await prisma.timeRecord.create({
-          data: {
-            userId,
-            locationId: parseInt(placeId),
-            date: nswTimestamp,
-            clockIn: nswTimestamp
-          }
-        });
-        break;
-
-      case 'breakStart':
-        await prisma.breakRecord.create({
-          data: {
-            timeRecordId: (await getCurrentTimeRecord(userId))!.id,
-            startTime: nswTimestamp
-          }
-        });
-        break;
-
-      case 'breakEnd':
-        await prisma.breakRecord.updateMany({
-          where: {
-            timeRecordId: (await getCurrentTimeRecord(userId))!.id,
-            endTime: null
-          },
-          data: { endTime: nswTimestamp }
-        });
-        break;
-
-      case 'clockOut':
-        await prisma.timeRecord.update({
-          where: { id: (await getCurrentTimeRecord(userId))!.id },
-          data: { clockOut: nswTimestamp }
-        });
-        break;
-    }
-
-    res.json({ success: true });
   } catch (error) {
-    console.error('Time entry error:', error);
-    res.status(500).json({ error: 'Failed to record time' });
+    console.error('Server error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
