@@ -1,4 +1,4 @@
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { Button } from './Button';
