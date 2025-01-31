@@ -16,19 +16,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   
   const verifyLocationAndRecord = async (placeId: string) => {
     try {
-      // First check if geolocation is available
-      if (!navigator.geolocation) {
-        throw new Error('Geolocation is not supported by your browser');
-      }
-
-      // Request permission explicitly first
-      const permissionResult = await navigator.permissions.query({ name: 'geolocation' });
-      
-      if (permissionResult.state === 'denied') {
-        throw new Error('Location access denied. Please enable location in your device settings.');
-      }
-
-      // Then get position
+      // Get position first
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
@@ -52,30 +40,20 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         })
       });
 
-      if (!response.ok) {
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to record time');
-      }
-
-      return true;
-    } catch (error) {
-      if (error instanceof GeolocationPositionError) {
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            setError('Please enable location access to use this feature');
-            break;
-          case error.POSITION_UNAVAILABLE:
-            setError('Location information is unavailable');
-            break;
-          case error.TIMEOUT:
-            setError('Location request timed out');
-            break;
-          default:
-            setError('Failed to get location');
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to record time');
         }
+        return true;
       } else {
-        setError(error instanceof Error ? error.message : 'Failed to verify location');
+        throw new Error('Invalid response from server');
       }
+    } catch (error) {
+      console.error('Verification error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to verify location');
       return false;
     }
   };
