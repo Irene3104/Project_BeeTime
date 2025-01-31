@@ -90,11 +90,11 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
             fps: 10, 
             qrbox: { width: 250, height: 250 },
             videoConstraints: {
-              facingMode: { exact: "environment" }
+              facingMode: isMobile() ? "environment" : "user"
             },
             formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
           },
-          false // Set verbose to false
+          false
         );
 
         scanner.render(
@@ -156,4 +156,8 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       </button>
     </div>
   );
+}
+
+function isMobile() {
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 }
