@@ -12,11 +12,20 @@ import UserIconHover from '../assets/user_hover.png';
 import TimeIconHover from '../assets/time_hover.png';
 import CircleBg from '../assets/circle_bg.svg';
 import { getCurrentNSWTime, formatNSWTime, formatNSWDate } from '../utils/dateTime';
+import { QRScanner } from '../components/QRScanner';
 
 export const Dashboard = () => {
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(getCurrentNSWTime());
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showScanner, setShowScanner] = useState<{ 
+    show: boolean; 
+    type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut' | null 
+  }>({
+    show: false,
+    type: null
+  });
+  const [loading, setLoading] = useState<string | null>(null);
 
   // 시간 업데이트 (1초마다)
   useEffect(() => {
@@ -37,6 +46,11 @@ export const Dashboard = () => {
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');
       navigate('/login');
+  };
+
+  const handleScanClick = (type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut') => {
+    setLoading(type);
+    setShowScanner({ show: true, type });
   };
 
   return (
@@ -128,31 +142,54 @@ export const Dashboard = () => {
 
               {/* 버튼 그리드 */}
               <div className="grid grid-cols-2 gap-4 w-full max-w-[320px] mx-auto px-4">
-                  {/* Clock In 버튼 */}
-                  <button className="bg-[#FDCF17] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full">
-                      <span className="text-[14pt]">Clock</span>
-                      <span className="text-[14pt] -mt-2">In</span>
+                  <button 
+                    onClick={() => handleScanClick('clockIn')}
+                    disabled={loading === 'clockIn'}
+                    className="bg-[#FDCF17] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full"
+                  >
+                    <span className="text-[14pt]">Clock</span>
+                    <span className="text-[14pt] -mt-2">In</span>
                   </button>
-                  
-                  {/* Break Start 버튼 */}
-                  <button className="bg-[#A07907] text-white  rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full">
-                      <span className="text-[14pt]">Break</span>
-                      <span className="text-[14pt] -mt-2">Start</span>
+
+                  <button 
+                    onClick={() => handleScanClick('breakStart')}
+                    disabled={loading === 'breakStart'}
+                    className="bg-[#A07907] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full"
+                  >
+                    <span className="text-[14pt]">Break</span>
+                    <span className="text-[14pt] -mt-2">Start</span>
                   </button>
-                  
-                  {/* Break End 버튼 */}
-                  <button className="bg-[#A07907] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full">
-                      <span className="text-[14pt]">Break</span>
-                      <span className="text-[14pt] -mt-2">End</span>
+
+                  <button 
+                    onClick={() => handleScanClick('breakEnd')}
+                    disabled={loading === 'breakEnd'}
+                    className="bg-[#A07907] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full"
+                  >
+                    <span className="text-[14pt]">Break</span>
+                    <span className="text-[14pt] -mt-2">End</span>
                   </button>
-                  
-                  {/* Clock Out 버튼 */}
-                  <button className="bg-[#FDCF17] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full">
-                      <span className="text-[14pt]">Clock</span>
-                      <span className="text-[14pt] -mt-2">Out</span>
+
+                  <button 
+                    onClick={() => handleScanClick('clockOut')}
+                    disabled={loading === 'clockOut'}
+                    className="bg-[#FDCF17] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full"
+                  >
+                    <span className="text-[14pt]">Clock</span>
+                    <span className="text-[14pt] -mt-2">Out</span>
                   </button>
               </div>
           </div>
+
+          {showScanner.show && (
+            <QRScanner
+              type={showScanner.type!}
+              onClose={() => setShowScanner({ show: false, type: null })}
+              onScan={() => {
+                setShowScanner({ show: false, type: null });
+                // Optionally refresh or show success message
+              }}
+            />
+          )}
       </div>
   );
 };

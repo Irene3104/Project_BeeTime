@@ -30,6 +30,7 @@ model Location {
   branch        String?        @db.VarChar(100)
   company       String         @db.VarChar(255)
   address       String
+  placeId       String         @unique
   createdAt     DateTime       @default(now()) @db.Timestamp(6)
   updatedAt     DateTime       @updatedAt @db.Timestamp(6)
   locationUsers LocationUser[]
