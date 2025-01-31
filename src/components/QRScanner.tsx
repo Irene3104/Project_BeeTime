@@ -69,33 +69,56 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   };
 
   useEffect(() => {
-    const scanner = new Html5Qrcode("qr-reader");
-    scannerRef.current = scanner;
+    // Check if the browser supports getUserMedia
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setError('Your browser does not support camera access');
+      return;
+    }
 
-    scanner.start(
-      { facingMode: "environment" },
-      { qrbox: { width: 250, height: 250 } },
-      async (decodedText) => {
-        try {
-          const success = await verifyLocationAndRecord(decodedText);
-          if (success) {
-            await scanner.stop();
-            onScan();
-            onClose();
-          }
-        } catch (error) {
-          setError('Failed to process scan');
-        }
-      },
-      (error) => console.error(error)
-    );
-
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(console.error);
+    // Request camera permission with specific constraints for mobile
+    navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment', // Prefer back camera
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
       }
-    };
-  }, [type, onClose, onScan]);
+    })
+      .then(stream => {
+        // Permission granted, initialize scanner
+        stream.getTracks().forEach(track => track.stop());
+        initializeScanner();
+      })
+      .catch(err => {
+        console.error('Camera permission error:', err);
+        if (err.name === 'NotAllowedError') {
+          setError('Please allow camera access to scan QR codes');
+        } else if (err.name === 'NotFoundError') {
+          setError('No camera found on your device');
+        } else {
+          setError('Failed to access camera. Please try again.');
+        }
+      });
+  }, []);
+
+  const initializeScanner = () => {
+    try {
+      const html5QrcodeScanner = new Html5QrcodeScanner(
+        "qr-reader",
+        { 
+          fps: 10, 
+          qrbox: 250,
+          aspectRatio: 1.0,
+          showTorchButtonIfSupported: true // Add flashlight button for Android
+        },
+        false
+      );
+      
+      html5QrcodeScanner.render(onScanSuccess, onScanError);
+    } catch (err) {
+      console.error('Scanner initialization error:', err);
+      setError('Failed to start QR scanner');
+    }
+  };
 
   const titles = {
     clockIn: 'Clock In',

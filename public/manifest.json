@@ -1,0 +1,17 @@
+{
+    "name": "Bee Time",
+    "short_name": "BeeTime",
+    "description": "Employee time tracking application",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#FFFBF6",
+    "theme_color": "#FDCF17",
+    "icons": [
+      {
+        "src": "/logo_bee2.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      }
+    ],
+    "permissions": ["camera"]
+  }
