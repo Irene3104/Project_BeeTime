@@ -69,71 +69,52 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   };
 
   useEffect(() => {
-    let html5QrcodeScanner: Html5QrcodeScanner;
-
     const initializeScanner = async () => {
       try {
-        setScanning(true);
-        // First check for camera permissions
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: {
-            facingMode: 'environment'  // Prefer back camera
-          }
+        // Test camera access first
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: "environment" } }
+        }).catch(async () => {
+          // If environment camera fails, try any camera
+          return await navigator.mediaDevices.getUserMedia({ video: true });
         });
-        // Stop the stream immediately as Html5QrcodeScanner will request it again
+        
+        // If we got here, we have camera access
         stream.getTracks().forEach(track => track.stop());
 
-        // Initialize scanner with more options
-        html5QrcodeScanner = new Html5QrcodeScanner(
+        const scanner = new Html5QrcodeScanner(
           "qr-reader",
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1.0,
-            showTorchButtonIfSupported: true,
-            rememberLastUsedCamera: true,
+          { 
+            fps: 10, 
+            qrbox: 250,
             videoConstraints: {
-              facingMode: { exact: "environment" }
+              facingMode: "environment"
             }
           },
-          false
+          /* verbose= */ true
         );
 
-        await html5QrcodeScanner.render(
+        scanner.render(
           async (decodedText) => {
             console.log("QR Code detected:", decodedText);
             const success = await verifyLocationAndRecord(decodedText);
             if (success) {
-              html5QrcodeScanner.clear();
+              scanner.clear();
               onScan();
             }
           },
-          (errorMessage) => {
-            console.log("QR Scan error:", errorMessage);
+          (error) => {
+            console.log("QR Scan error:", error);
           }
         );
 
-        setScanning(true);
       } catch (err) {
-        console.error('Scanner initialization error:', err);
-        if (err instanceof DOMException && err.name === 'NotAllowedError') {
-          setError('Camera access denied. Please allow camera access and try again.');
-        } else if (err instanceof DOMException && err.name === 'NotFoundError') {
-          setError('No camera found. Please ensure your device has a camera.');
-        } else {
-          setError(`Failed to start scanner: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        }
-        setScanning(false);
+        console.error('Camera error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to access camera');
       }
     };
 
     initializeScanner();
-
-    return () => {
-      if (html5QrcodeScanner) {
-        html5QrcodeScanner.clear().catch(console.error);
-      }
-    };
   }, []);
 
   const titles = {
