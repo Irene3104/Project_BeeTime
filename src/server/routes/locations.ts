@@ -27,7 +27,15 @@ router.get('/', async (req, res) => {
 router.get('/:id/details', async (req, res) => {
   try {
     const location = await prisma.location.findUnique({
-      where: { id: parseInt(req.params.id) }
+      where: { id: parseInt(req.params.id) },
+      select: {
+        id: true,
+        name: true,
+        branch: true,
+        address: true,
+        company: true,
+        placeId: true
+      }
     });
 
     if (!location) {

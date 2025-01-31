@@ -92,7 +92,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     const location = await prisma.location.findUnique({
       where: { id: parseInt(String(placeId)) }
     });
-
+    
     if (!location) {
       return res.status(400).json({ error: 'Invalid workplace location' });
     }
@@ -123,7 +123,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
 
-      // 4. Record time entry based on type
+      // Record time entry based on type
       const nswTimestamp = fromNSWTime(new Date(timestamp));
       
       switch (type) {
@@ -131,7 +131,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
           await prisma.timeRecord.create({
             data: {
               userId,
-              locationId: parseInt(placeId),
+              locationId: parseInt(String(placeId)),
               date: nswTimestamp,
               clockIn: nswTimestamp
             }
@@ -170,7 +170,6 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       console.error('Google Maps API error:', googleError);
       return res.status(500).json({ error: 'Failed to verify location' });
     }
-
   } catch (error) {
     console.error('Server error:', error);
     res.status(500).json({ error: 'Internal server error' });
