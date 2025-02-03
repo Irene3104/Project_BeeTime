@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "NODE_NO_WARNINGS=1 tsx src/server/index.ts",
-    "init-workplaces": "tsx prisma/workplace-data.ts"
+    "init-workplaces": "tsx prisma/workplace-data.ts",
+    "update-locations": "tsx scripts/update-locations.ts"
   },
   "dependencies": {
     "@googlemaps/google-maps-services-js": "^3.4.0",
