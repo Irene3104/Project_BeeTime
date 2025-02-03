@@ -72,18 +72,18 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
 
   const onScanSuccess = async (decodedText: string) => {
     try {
-      // Expect the QR code to contain just a number
-      const locationId = decodedText.trim();
-      
       // Log the scanned value
-      console.log('Scanned QR code:', locationId);
+      console.log('Scanned QR code:', decodedText);
 
-      // Validate format
-      if (!/^\d+$/.test(locationId)) {
-        throw new Error('Invalid QR code format - must be a number');
+      // First try to get location by placeId
+      const response = await fetch(`${API_URL}/locations/by-place-id/${decodedText}`);
+      if (!response.ok) {
+        throw new Error('Invalid location QR code');
       }
-
-      const success = await verifyLocationAndRecord(locationId);
+      
+      const location = await response.json();
+      const success = await verifyLocationAndRecord(location.id.toString());
+      
       if (success) {
         onScan?.();
       }

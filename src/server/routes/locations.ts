@@ -51,5 +51,22 @@ router.get('/:id/details', async (req, res) => {
   }
 });
 
+router.get('/by-place-id/:placeId', async (req, res) => {
+  try {
+    const location = await prisma.location.findUnique({
+      where: { placeId: req.params.placeId }
+    });
+
+    if (!location) {
+      return res.status(404).json({ error: 'Location not found' });
+    }
+
+    res.json(location);
+  } catch (error) {
+    console.error('Error finding location by place ID:', error);
+    res.status(500).json({ error: 'Failed to find location' });
+  }
+});
+
 export { router as locationRouter }; 
 
