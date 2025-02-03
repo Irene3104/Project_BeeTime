@@ -70,6 +70,29 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     }
   };
 
+  const onScanSuccess = async (decodedText: string) => {
+    try {
+      // Expect the QR code to contain just a number
+      const locationId = decodedText.trim();
+      
+      // Log the scanned value
+      console.log('Scanned QR code:', locationId);
+
+      // Validate format
+      if (!/^\d+$/.test(locationId)) {
+        throw new Error('Invalid QR code format - must be a number');
+      }
+
+      const success = await verifyLocationAndRecord(locationId);
+      if (success) {
+        onScan?.();
+      }
+    } catch (error) {
+      console.error('Scan error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to process QR code');
+    }
+  };
+
   useEffect(() => {
     const initializeScanner = async () => {
       try {
@@ -92,20 +115,14 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
             videoConstraints: {
               facingMode: isMobile() ? "environment" : "user"
             },
-            formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+            formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
+            rememberLastUsedCamera: true
           },
           false
         );
 
         scanner.render(
-          async (decodedText) => {
-            console.log("QR Code detected:", decodedText);
-            const success = await verifyLocationAndRecord(decodedText);
-            if (success) {
-              scanner.clear();
-              onScan();
-            }
-          },
+          onScanSuccess,
           (error) => {
             console.log("QR Scan error:", error);
           }
