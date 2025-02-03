@@ -15,16 +15,11 @@ import { getCurrentNSWTime, formatNSWTime, formatNSWDate } from '../utils/dateTi
 import { QRScanner } from '../components/QRScanner';
 
 export const Dashboard = () => {
+  // Dashboard component for time tracking
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(getCurrentNSWTime());
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [showScanner, setShowScanner] = useState<{ 
-    show: boolean; 
-    type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut' | null 
-  }>({
-    show: false,
-    type: null
-  });
+  const [showScanner, setShowScanner] = useState<{ show: boolean; type: string | null }>({ show: false, type: null });
   const [loading, setLoading] = useState<string | null>(null);
 
   // 시간 업데이트 (1초마다)
