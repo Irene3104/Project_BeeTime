@@ -93,63 +93,44 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     }
   };
 
+  const scanner = new Html5QrcodeScanner(
+    "qr-reader",
+    { 
+      fps: 10,
+      qrbox: { width: 250, height: 250 },
+      videoConstraints: {
+        facingMode: "environment"  // Removed 'exact' constraint
+      },
+      showTorchButtonIfSupported: true
+    },
+    false
+  );
+
   useEffect(() => {
-    const initializeScanner = async () => {
-      try {
-        // Test camera access first
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: "environment" } }
-        }).catch(async () => {
-          // If environment camera fails, try any camera
-          return await navigator.mediaDevices.getUserMedia({ video: true });
-        });
-        
-        // If we got here, we have camera access
-        stream.getTracks().forEach(track => track.stop());
-
-        const scanner = new Html5QrcodeScanner(
-          "qr-reader",
-          { 
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            videoConstraints: {
-              facingMode: { exact: "environment" }
-            }
-          },
-          /* verbose= */ true  // Enable verbose logging
-        );
-
-        scanner.render(
-          async (decodedText) => {
-            console.log('Successfully scanned QR code:', decodedText);  // Debug log
-            try {
-              const success = await verifyLocationAndRecord(decodedText);
-              if (success) {
-                onScan?.();
-              }
-            } catch (error) {
-              console.error('Verification error:', error);
-              setError(error instanceof Error ? error.message : 'Failed to verify location');
-            }
-          },
-          (error) => {
-            // Only log actual errors, not "no QR code found" messages
-            if (!error.includes("No QR code found")) {
-              console.error('QR Scan error:', error);
-            }
+    // Simple render without trying to access camera first
+    scanner.render(
+      async (decodedText) => {
+        console.log('Successfully scanned QR code:', decodedText);
+        try {
+          const success = await verifyLocationAndRecord(decodedText);
+          if (success) {
+            onScan?.();
           }
-        );
-
-        return () => {
-          scanner.clear();
-        };
-      } catch (err) {
-        console.error('Camera error:', err);
-        setError(err instanceof Error ? err.message : 'Failed to access camera');
+        } catch (error) {
+          console.error('Verification error:', error);
+          setError(error instanceof Error ? error.message : 'Failed to verify location');
+        }
+      },
+      (error) => {
+        if (!error.includes("No QR code found")) {
+          console.error('QR Scan error:', error);
+        }
       }
-    };
+    );
 
-    initializeScanner();
+    return () => {
+      scanner.clear();
+    };
   }, []);
 
   const titles = {
