@@ -110,24 +110,39 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         const scanner = new Html5QrcodeScanner(
           "qr-reader",
           { 
-            fps: 10, 
+            fps: 10,
             qrbox: { width: 250, height: 250 },
             videoConstraints: {
-              facingMode: isMobile() ? "environment" : "user"
-            },
-            formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
-            rememberLastUsedCamera: true
+              facingMode: { exact: "environment" }
+            }
           },
-          false
+          /* verbose= */ true  // Enable verbose logging
         );
 
         scanner.render(
-          onScanSuccess,
+          async (decodedText) => {
+            console.log('Successfully scanned QR code:', decodedText);  // Debug log
+            try {
+              const success = await verifyLocationAndRecord(decodedText);
+              if (success) {
+                onScan?.();
+              }
+            } catch (error) {
+              console.error('Verification error:', error);
+              setError(error instanceof Error ? error.message : 'Failed to verify location');
+            }
+          },
           (error) => {
-            console.log("QR Scan error:", error);
+            // Only log actual errors, not "no QR code found" messages
+            if (!error.includes("No QR code found")) {
+              console.error('QR Scan error:', error);
+            }
           }
         );
 
+        return () => {
+          scanner.clear();
+        };
       } catch (err) {
         console.error('Camera error:', err);
         setError(err instanceof Error ? err.message : 'Failed to access camera');

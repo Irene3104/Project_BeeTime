@@ -24,35 +24,39 @@ async function getPlaceIdAndCreate(locationData: any) {
 }
 
 async function main() {
-  await prisma.location.deleteMany(); // Clear existing data
+  // First delete related records
+  await prisma.timeRecord.deleteMany();
+  await prisma.locationUser.deleteMany();
+  await prisma.location.deleteMany();
 
+  // Then create new locations with more precise addresses
   const locations = await Promise.all([
     getPlaceIdAndCreate({
       name: 'Sorrel Cafe & Bar',
       company: 'Juncafe Opera Pty Ltd',
-      address: 'Shop K333-334, Level 3, Broadway Sydney1 Bay St. Broadway NSW 2007'
+      address: 'Broadway Shopping Centre, Bay Street, Broadway NSW 2007'
     }),
     getPlaceIdAndCreate({
       name: 'Baskin Robbins',
       branch: 'Circular Quay',
       company: 'Ice Opera Pty Ltd',
-      address: 'Shop 4, Lot 2 Quay Grand 61-63 Macquarie St. Sydney NSW 2000'
+      address: '61-63 Macquarie Street, Sydney NSW 2000'
     }),
     getPlaceIdAndCreate({
       name: 'Baskin Robbins',
       branch: 'Manly',
       company: 'Ice Opera Pty Ltd',
-      address: '53 East Esplanade, The Corso, Manly NSW 2095, Australia'
+      address: '53 East Esplanade, Manly NSW 2095'
     }),
     getPlaceIdAndCreate({
       name: 'Sushi Roll',
       company: 'Top Ryde Sushiroll Pty Ltd',
-      address: 'Shop 3042, Ground Level, Devlin St, Ryde NSW 2112, Australia'
+      address: 'Top Ryde City Shopping Centre, Devlin Street, Ryde NSW 2112'
     }),
     getPlaceIdAndCreate({
       name: 'Home',
       company: 'Stephen & Irene Co',
-      address: 'unit 12/50 Audley St, Petersham NSW 2049, Australia'
+      address: '50 Audley Street, Petersham NSW 2049'
     })
   ]);
 
