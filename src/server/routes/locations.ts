@@ -53,8 +53,10 @@ router.get('/:id/details', async (req, res) => {
 
 router.get('/by-place-id/:placeId', async (req, res) => {
   try {
-    const location = await prisma.location.findUnique({
-      where: { placeId: req.params.placeId }
+    const { placeId } = req.params;
+    
+    const location = await prisma.location.findFirst({
+      where: { placeId }
     });
 
     if (!location) {

@@ -16,39 +16,23 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   
   const verifyLocationAndRecord = async (placeId: string) => {
     try {
-      // Validate QR code format
-      const locationId = parseInt(placeId, 10);
-      if (isNaN(locationId)) {
-        throw new Error('Invalid QR code format');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      if (!token) {
+        throw new Error('인증에 실패했습니다.');
       }
 
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-          resolve,
-          (error) => {
-            console.error('Geolocation error:', error);
-            if (error.code === 1) {
-              reject(new Error('Please enable location access in your browser settings'));
-            } else {
-              reject(new Error('Failed to get location. Please try again.'));
-            }
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 20000,
-            maximumAge: 0
-          }
-        );
+        navigator.geolocation.getCurrentPosition(resolve, reject);
       });
 
-      const response = await fetch(`${API_URL}/time-entries/verify-location`, {
+      const response = await fetch('http://localhost:3000/time-entries/verify-location', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`  // Add 'Bearer ' prefix
         },
         body: JSON.stringify({
-          placeId: locationId,
+          placeId,
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           type,
@@ -56,16 +40,15 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         })
       });
 
-      const data = await response.json();
-      
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to verify location');
+        const data = await response.json();
+        throw new Error(data.error || '인증에 실패했습니다.');
       }
 
       return true;
     } catch (error) {
-      console.error('Verification error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to verify location');
+      console.error('Error:', error);
+      setError(error instanceof Error ? error.message : '인증에 실패했습니다.');
       return false;
     }
   };
@@ -93,40 +76,25 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     }
   };
 
-  const scanner = new Html5QrcodeScanner(
-    "qr-reader",
-    { 
-      fps: 10,
-      qrbox: { width: 250, height: 250 },
-      videoConstraints: {
-        facingMode: "environment"  // Removed 'exact' constraint
-      },
-      showTorchButtonIfSupported: true
-    },
-    false
-  );
-
   useEffect(() => {
-    // Simple render without trying to access camera first
-    scanner.render(
-      async (decodedText) => {
-        console.log('Successfully scanned QR code:', decodedText);
-        try {
-          const success = await verifyLocationAndRecord(decodedText);
-          if (success) {
-            onScan?.();
-          }
-        } catch (error) {
-          console.error('Verification error:', error);
-          setError(error instanceof Error ? error.message : 'Failed to verify location');
-        }
+    const scanner = new Html5QrcodeScanner(
+      "qr-reader",
+      { 
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        videoConstraints: {
+          facingMode: "environment"
+        },
+        showTorchButtonIfSupported: true
       },
-      (error) => {
-        if (!error.includes("No QR code found")) {
-          console.error('QR Scan error:', error);
-        }
-      }
+      false
     );
+
+    scanner.render(onScanSuccess, (error) => {
+      if (!error.includes("No QR code found")) {
+        console.error('QR Scan error:', error);
+      }
+    });
 
     return () => {
       scanner.clear();
@@ -141,32 +109,22 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black flex flex-col items-center justify-center z-50">
-      <button 
-        onClick={onClose}
-        className="absolute top-4 right-4 text-white"
-      >
-        <X size={24} />
-      </button>
-      
-      <h2 className="text-white text-xl mb-8">
-        Scan QR Code for {titles[type]}
-      </h2>
-
-      {error && (
-        <div className="bg-red-500 text-white px-4 py-2 rounded mb-4 max-w-sm text-center">
-          {error}
-        </div>
-      )}
-
-      <div id="qr-reader" className="w-full max-w-sm" />
-
-      <button
-        onClick={onClose}
-        className="mt-8 px-6 py-2 bg-[#FDCF17] text-white rounded-full"
-      >
-        Cancel
-      </button>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white p-4 rounded-lg w-full max-w-md">
+        <h2 className="text-xl font-bold mb-4 text-center">Scan QR Code for {titles[type]}</h2>
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
+        <div id="qr-reader" className="w-full"></div>
+        <button
+          onClick={onClose}
+          className="mt-4 w-full bg-yellow-400 text-white py-2 px-4 rounded-full"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
