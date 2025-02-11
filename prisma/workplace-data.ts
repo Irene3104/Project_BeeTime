@@ -1,14 +1,23 @@
 import { PrismaClient } from '@prisma/client'
-import { googleMapsClient } from '../src/server/services/googleMapsClient'
+import { Client, PlaceInputType } from '@googlemaps/google-maps-services-js'
 
 const prisma = new PrismaClient()
+const googleMapsClient = new Client({})
 
-async function getPlaceIdAndCreate(locationData: any) {
+interface LocationData {
+  name: string
+  branch?: string
+  company: string
+  address: string
+}
+
+async function getPlaceIdAndCreate(locationData: LocationData) {
   const response = await googleMapsClient.findPlaceFromText({
     params: {
       input: `${locationData.name} ${locationData.address}`,
-      inputtype: 'textquery' as const,
-      key: process.env.GOOGLE_MAPS_API_KEY!
+      inputtype: PlaceInputType.textQuery,
+      fields: ['place_id'],
+      key: process.env.GOOGLE_MAPS_API_KEY || ''
     }
   });
 
@@ -17,8 +26,11 @@ async function getPlaceIdAndCreate(locationData: any) {
 
   return prisma.location.create({
     data: {
-      ...locationData,
-      placeId
+      name: locationData.name,
+      branch: locationData.branch,
+      company: locationData.company,
+      address: locationData.address,
+      placeId: placeId
     }
   });
 }

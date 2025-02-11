@@ -18,55 +18,112 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     try {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
-        throw new Error('인증에 실패했습니다.');
+        throw new Error('No authentication token found');
       }
 
+      console.log('Getting current position...');
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject);
+        navigator.geolocation.getCurrentPosition(
+          resolve,
+          (error) => {
+            console.error('Geolocation error:', error);
+            reject(new Error(
+              error.code === 1 ? 'Please enable location access to clock in' :
+              error.code === 2 ? 'Unable to determine your location' :
+              error.code === 3 ? 'Location request timed out' :
+              'Failed to get your location'
+            ));
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          }
+        );
       });
 
-      const response = await fetch('http://localhost:3000/time-entries/verify-location', {
+      console.log('Got position:', {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      });
+
+      const response = await fetch(`${API_URL}/time-entries/verify-location`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`  // Add 'Bearer ' prefix
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           placeId,
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
           type,
           timestamp: new Date().toISOString()
         })
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || '인증에 실패했습니다.');
+      const data = await response.json();
+      console.log('Server response:', data);
+
+      if (response.status === 401) {
+        throw new Error('Session expired. Please log in again.');
       }
 
-      return true;
+      if (!response.ok) {
+        const errorMessage = data.error || 'Failed to verify location';
+        let errorDetails = [];
+        
+        if (data.details) {
+          errorDetails.push(data.details);
+        }
+        
+        if (data.coordinates) {
+          const workplace = data.coordinates.workplace;
+          const user = data.coordinates.user;
+          
+          errorDetails.push(
+            `Workplace: ${workplace.name}`,
+            `Address: ${workplace.address}`,
+            `Place ID: ${workplace.placeId}`,
+            `Workplace coordinates: (${workplace.lat}, ${workplace.lng})`,
+            `Your coordinates: (${user.lat}, ${user.lng})`,
+            `GPS Accuracy: ${user.accuracy}m`
+          );
+        }
+
+        if (data.distance) {
+          errorDetails.push(`Distance: ${data.distance}m`);
+        }
+
+        const fullError = [errorMessage, ...errorDetails].join('\n');
+        console.error('Location verification failed:', data);
+        throw new Error(fullError);
+      }
+
+      if (data.success) {
+        console.log('Time entry recorded successfully:', data.data);
+        return true;
+      } else {
+        throw new Error('Failed to record time entry');
+      }
     } catch (error) {
       console.error('Error:', error);
-      setError(error instanceof Error ? error.message : '인증에 실패했습니다.');
+      if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError('An unexpected error occurred');
+      }
       return false;
     }
   };
 
   const onScanSuccess = async (decodedText: string) => {
     try {
-      // Log the scanned value
       console.log('Scanned QR code:', decodedText);
-
-      // First try to get location by placeId
-      const response = await fetch(`${API_URL}/locations/by-place-id/${decodedText}`);
-      if (!response.ok) {
-        throw new Error('Invalid location QR code');
-      }
-      
-      const location = await response.json();
-      const success = await verifyLocationAndRecord(location.id.toString());
-      
+      setError(null); // Clear any previous errors
+      const success = await verifyLocationAndRecord(decodedText);
       if (success) {
         onScan?.();
       }
@@ -80,24 +137,36 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     const scanner = new Html5QrcodeScanner(
       "qr-reader",
       { 
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
+        fps: 30,
+        qrbox: { width: 300, height: 300 },
         videoConstraints: {
-          facingMode: "environment"
+          facingMode: "environment",
+          width: { min: 640, ideal: 1280, max: 1920 },
+          height: { min: 480, ideal: 720, max: 1080 }
         },
-        showTorchButtonIfSupported: true
+        showTorchButtonIfSupported: true,
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        aspectRatio: 1.0
       },
       false
     );
 
+    let lastErrorTime = 0;
+    const ERROR_COOLDOWN = 2000;
+
     scanner.render(onScanSuccess, (error) => {
-      if (!error.includes("No QR code found")) {
+      const now = Date.now();
+      if (!error.includes("No QR code found") && 
+          !error.includes("No MultiFormat Readers") && 
+          !error.includes("No barcode") &&
+          now - lastErrorTime > ERROR_COOLDOWN) {
         console.error('QR Scan error:', error);
+        lastErrorTime = now;
       }
     });
 
     return () => {
-      scanner.clear();
+      scanner.clear().catch(console.error);
     };
   }, []);
 

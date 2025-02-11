@@ -4,6 +4,7 @@ import { prisma } from '../db';
 import { validateRequest } from '../middleware/validateRequest';
 import { toNSWTime, fromNSWTime, getCurrentNSWTime } from '../../utils/dateTime';
 import { googleMapsClient } from '../services/googleMapsClient';
+import { Prisma, Location, TimeRecord } from '@prisma/client';
 
 const router = Router();
 
@@ -84,58 +85,161 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     const { placeId, latitude, longitude, type, timestamp } = req.body;
     const userId = req.user!.id;
 
-    console.log('Verification request:', { placeId, latitude, longitude, type });
-
-    // Find location by Google Place ID
-    const location = await prisma.location.findFirst({
-      where: { placeId: placeId }
-    });
-    
-    if (!location) {
-      console.log('Location not found for placeId:', placeId);
-      return res.status(400).json({ error: 'Invalid workplace location' });
-    }
-
-    // Get place details from Google Maps
-    const placeDetails = await googleMapsClient.placeDetails({
-      params: {
-        place_id: placeId,
-        key: process.env.GOOGLE_MAPS_API_KEY!
-      }
-    });
-
-    const place = placeDetails.data.result;
-    
-    // Calculate distance
-    const distance = calculateDistance(
+    console.log('Received verification request:', {
+      placeId,
       latitude,
       longitude,
-      place.geometry.location.lat,
-      place.geometry.location.lng
-    );
+      type,
+      userId,
+      timestamp
+    });
 
-    // Verify distance (100 meters)
-    if (distance > 100) {
-      return res.status(400).json({ 
-        error: 'You must be within 100 meters of the workplace to register time' 
+    // Step 1: Find the workplace location using raw query to avoid type issues
+    const locations = await prisma.$queryRaw<Location[]>`
+      SELECT * FROM "Location" WHERE "placeId" = ${placeId} LIMIT 1
+    `;
+
+    if (!locations.length) {
+      console.error('Location not found:', placeId);
+      return res.status(400).json({
+        error: 'Invalid workplace location',
+        details: 'Location not found in database'
       });
     }
 
-    // Record time entry
-    const nswTimestamp = fromNSWTime(new Date(timestamp));
-    const timeEntry = await prisma.timeRecord.create({
-      data: {
-        userId,
-        locationId: location.id,
-        type,
-        timestamp: nswTimestamp
-      }
+    const location = locations[0];
+    console.log('Found workplace location:', {
+      id: location.id,
+      name: location.name,
+      address: location.address
     });
 
-    res.json({ success: true, timeEntry });
+    // Step 2: Get location coordinates from Google Maps
+    try {
+      const placeDetails = await googleMapsClient.placeDetails({
+        params: {
+          place_id: placeId,
+          fields: ['geometry'],
+          key: process.env.GOOGLE_MAPS_API_KEY!
+        }
+      });
+
+      if (!placeDetails.data.result?.geometry?.location) {
+        console.error('No geometry in place details');
+        return res.status(400).json({
+          error: 'Invalid location data',
+          details: 'Could not get location coordinates'
+        });
+      }
+
+      const workplace = placeDetails.data.result.geometry.location;
+      console.log('Workplace coordinates:', workplace);
+      console.log('User coordinates:', { latitude, longitude });
+
+      // Step 3: Calculate and verify distance
+      const distance = calculateDistance(
+        latitude,
+        longitude,
+        workplace.lat,
+        workplace.lng
+      );
+
+      console.log('Distance calculation:', {
+        workplace: {
+          name: location.name,
+          coordinates: workplace,
+          placeId: placeId
+        },
+        user: {
+          coordinates: { latitude, longitude },
+          accuracy: req.body.accuracy
+        },
+        distance: Math.round(distance)
+      });
+
+      const MAX_DISTANCE = 100; // 100 meters limit
+      if (distance > MAX_DISTANCE) {
+        const errorResponse = {
+          error: 'You must be within 100 meters of the workplace to register time',
+          distance: Math.round(distance),
+          maxAllowed: MAX_DISTANCE,
+          details: `You are ${Math.round(distance)}m away from ${location.name}`,
+          coordinates: {
+            workplace: { 
+              lat: workplace.lat, 
+              lng: workplace.lng,
+              name: location.name,
+              address: location.address,
+              placeId: placeId
+            },
+            user: { 
+              lat: latitude, 
+              lng: longitude,
+              accuracy: req.body.accuracy
+            }
+          }
+        };
+        console.log('Location verification failed:', errorResponse);
+        return res.status(400).json(errorResponse);
+      }
+
+      // Step 4: Record the time entry
+      const nswTimestamp = fromNSWTime(new Date(timestamp));
+      const today = new Date(nswTimestamp);
+      today.setHours(0, 0, 0, 0);
+
+      // Find existing entry for today using raw query
+      const existingEntries = await prisma.$queryRaw<TimeRecord[]>`
+        SELECT * FROM "TimeRecord"
+        WHERE "userId" = ${userId.toString()}
+        AND DATE("date") = ${today}::date
+        LIMIT 1
+      `;
+
+      let timeEntry;
+
+      if (existingEntries.length) {
+        // Update existing entry using raw query
+        const updateField = type;
+        timeEntry = await prisma.$executeRaw`
+          UPDATE "TimeRecord"
+          SET ${Prisma.raw(`"${updateField}"`)} = ${nswTimestamp}
+          WHERE id = ${existingEntries[0].id}
+          RETURNING *
+        `;
+      } else {
+        // Create new entry using raw query
+        timeEntry = await prisma.$executeRaw`
+          INSERT INTO "TimeRecord" ("userId", "locationId", "date", "${type}", "status")
+          VALUES (${userId.toString()}, ${location.id}, ${today}, ${nswTimestamp}, 'active')
+          RETURNING *
+        `;
+      }
+
+      console.log('Time entry recorded:', timeEntry);
+
+      return res.json({
+        success: true,
+        message: 'Location verified and time recorded',
+        data: {
+          timeEntry,
+          distance: Math.round(distance)
+        }
+      });
+
+    } catch (error) {
+      console.error('Google Maps API error:', error);
+      return res.status(500).json({
+        error: 'Failed to verify location with Google Maps',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   } catch (error) {
     console.error('Verification error:', error);
-    res.status(500).json({ error: 'Failed to verify location' });
+    return res.status(500).json({
+      error: 'Failed to verify location',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 
