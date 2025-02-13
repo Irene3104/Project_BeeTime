@@ -203,11 +203,20 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       const today = new Date(nswTimestamp);
       today.setHours(0, 0, 0, 0);
 
+      // Before the raw query, add a formatted string for the date
+      const todayStr = today.toISOString().split('T')[0];
+
+      // Insert before the raw query (after todayStr definition):
+      const userIdStr = String(userId);
+
+      // Before the INSERT query, after 'todayStr' is defined, add the following:
+      const timestampStr = new Date(nswTimestamp).toISOString();
+
       // Find existing entry for today using raw query
       const existingEntries = await prisma.$queryRaw<TimeRecord[]>`
         SELECT * FROM "TimeRecord"
-        WHERE "userId" = ${userId.toString()}
-        AND DATE("date") = ${today}::date
+        WHERE "userId" = ${userIdStr}
+        AND TO_CHAR("date", 'YYYY-MM-DD') = ${todayStr}
         LIMIT 1
       `;
 
@@ -226,7 +235,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         // Create new entry using raw query
         timeEntry = await prisma.$executeRaw`
           INSERT INTO "TimeRecord" ("userId", "locationId", "date", "${type}", "status")
-          VALUES (${userId.toString()}, ${location.id}, ${today}, ${nswTimestamp}, 'active')
+          VALUES (${userIdStr}, ${String(location.id)}, ${todayStr}, ${timestampStr}, 'active')
           RETURNING *
         `;
       }
