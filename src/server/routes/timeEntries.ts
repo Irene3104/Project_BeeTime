@@ -116,6 +116,11 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
 
     // Step 2: Get location coordinates from Google Maps
     try {
+      console.log('Fetching place details from Google Maps:', {
+        placeId,
+        apiKey: process.env.GOOGLE_MAPS_API_KEY ? 'present' : 'missing'
+      });
+
       const placeDetails = await googleMapsClient.placeDetails({
         params: {
           place_id: placeId,
@@ -124,11 +129,20 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         }
       });
 
+      console.log('Google Maps API response:', {
+        status: placeDetails.data.status,
+        hasResult: !!placeDetails.data.result,
+        hasGeometry: !!placeDetails.data.result?.geometry,
+        hasLocation: !!placeDetails.data.result?.geometry?.location
+      });
+
       if (!placeDetails.data.result?.geometry?.location) {
-        console.error('No geometry in place details');
+        console.error('No geometry in place details:', placeDetails.data);
         return res.status(400).json({
           error: 'Invalid location data',
-          details: 'Could not get location coordinates'
+          details: `Could not get location coordinates for ${location.name}`,
+          placeId,
+          googleMapsStatus: placeDetails.data.status
         });
       }
 

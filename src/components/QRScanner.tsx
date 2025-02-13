@@ -78,6 +78,14 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         if (data.details) {
           errorDetails.push(data.details);
         }
+
+        if (data.googleMapsStatus) {
+          errorDetails.push(`Google Maps Status: ${data.googleMapsStatus}`);
+        }
+
+        if (data.placeId) {
+          errorDetails.push(`Place ID: ${data.placeId}`);
+        }
         
         if (data.coordinates) {
           const workplace = data.coordinates.workplace;
@@ -98,7 +106,11 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         }
 
         const fullError = [errorMessage, ...errorDetails].join('\n');
-        console.error('Location verification failed:', data);
+        console.error('Location verification failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          data
+        });
         throw new Error(fullError);
       }
 
