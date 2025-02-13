@@ -23,22 +23,33 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
 
       console.log('Getting current position...');
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        const options = {
+          enableHighAccuracy: true,
+          timeout: 30000, // Increased to 30 seconds
+          maximumAge: 0
+        };
+
+        // Try to get a quick position first
         navigator.geolocation.getCurrentPosition(
           resolve,
           (error) => {
-            console.error('Geolocation error:', error);
-            reject(new Error(
-              error.code === 1 ? 'Please enable location access to clock in' :
-              error.code === 2 ? 'Unable to determine your location' :
-              error.code === 3 ? 'Location request timed out' :
-              'Failed to get your location'
-            ));
+            console.warn('First attempt failed, trying again with lower accuracy:', error);
+            // If high accuracy fails, try again with lower accuracy
+            navigator.geolocation.getCurrentPosition(
+              resolve,
+              (finalError) => {
+                console.error('Both geolocation attempts failed:', finalError);
+                reject(new Error(
+                  finalError.code === 1 ? 'Please enable location access to clock in' :
+                  finalError.code === 2 ? 'Unable to determine your location. Please ensure you have GPS enabled and try again.' :
+                  finalError.code === 3 ? 'Location request timed out. Please ensure you have GPS enabled and try again.' :
+                  'Failed to get your location'
+                ));
+              },
+              { enableHighAccuracy: false, timeout: 30000, maximumAge: 0 }
+            );
           },
-          {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0
-          }
+          options
         );
       });
 
