@@ -83,3 +83,28 @@ export interface User {
     name: string;
     locationId: string;
   }
+
+  // 테이블 셀 데이터 타입
+export interface TableCellData {
+  value: string | null;
+  status?: 'late' | 'early' | 'normal';
+}
+
+// 테이블 셀 props 타입
+export interface TableCellProps {
+  data: TableCellData;
+}
+
+// 테이블 헤더 props 타입
+export interface TableHeaderProps {
+  title: string;
+}
+
+// 근무 시간 기록 행 타입
+export interface TimeActivityRow {
+  date: Date;
+  checkIn: string | null;
+  breakIn: string | null;
+  breakOut: string | null;
+  checkOut: string | null;
+}
