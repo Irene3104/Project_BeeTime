@@ -198,46 +198,38 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         return res.status(400).json(errorResponse);
       }
 
-      // Step 4: Record the time entry
+      // Step 4: Record the time entry using ORM methods instead of raw queries
       const nswTimestamp = fromNSWTime(new Date(timestamp));
       const today = new Date(nswTimestamp);
       today.setHours(0, 0, 0, 0);
 
-      // Before the raw query, add a formatted string for the date
-      const todayStr = today.toISOString().split('T')[0];
-
-      // Insert before the raw query (after todayStr definition):
-      const userIdStr = String(userId);
-
-      // Before the INSERT query, after 'todayStr' is defined, add the following:
-      const timestampStr = new Date(nswTimestamp).toISOString();
-
-      // Find existing entry for today using raw query
-      const existingEntries = await prisma.$queryRaw<TimeRecord[]>`
-        SELECT * FROM "TimeRecord"
-        WHERE "userId" = ${userIdStr}
-        AND TO_CHAR("date", 'YYYY-MM-DD') = ${todayStr}
-        LIMIT 1
-      `;
+      // Find existing entry for today using Prisma ORM methods
+      const existingEntry = await prisma.timeRecord.findFirst({
+        where: {
+          userId: req.user!.id,
+          date: {
+            gte: today,
+            lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
+          }
+        }
+      });
 
       let timeEntry;
-
-      if (existingEntries.length) {
-        // Update existing entry using raw query
-        const updateField = type;
-        timeEntry = await prisma.$executeRaw`
-          UPDATE "TimeRecord"
-          SET ${Prisma.raw(`"${updateField}"`)} = ${nswTimestamp}
-          WHERE id = ${existingEntries[0].id}
-          RETURNING *
-        `;
+      if (existingEntry) {
+        timeEntry = await prisma.timeRecord.update({
+          where: { id: existingEntry.id },
+          data: { [type]: nswTimestamp }
+        });
       } else {
-        // Create new entry using raw query
-        timeEntry = await prisma.$executeRaw`
-          INSERT INTO "TimeRecord" ("userId", "locationId", "date", "${type}", "status")
-          VALUES (${userIdStr}, ${String(location.id)}, ${todayStr}, ${timestampStr}, 'active')
-          RETURNING *
-        `;
+        timeEntry = await prisma.timeRecord.create({
+          data: {
+            userId: req.user!.id,
+            locationId: location.id,
+            date: today,
+            [type]: nswTimestamp,
+            status: 'active'
+          }
+        });
       }
 
       console.log('Time entry recorded:', timeEntry);
@@ -268,17 +260,14 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
 });
 
 // Helper function to get current time record
-async function getCurrentTimeRecord(userId: number) {
+async function getCurrentTimeRecord(userId: string) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
   return await prisma.timeRecord.findFirst({
     where: {
       userId,
-      date: {
-        gte: today
-      },
-      clockOut: null
+      date: { gte: today },
+      clockOut: { equals: null }
     }
   });
 }
