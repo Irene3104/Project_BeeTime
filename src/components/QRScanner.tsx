@@ -143,16 +143,24 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   };
 
   const onScanSuccess = async (decodedText: string) => {
+    if (scanning) return; // Prevent multiple scans concurrently
+    setScanning(true);
     try {
       console.log('Scanned QR code:', decodedText);
       setError(null); // Clear any previous errors
-      const success = await verifyLocationAndRecord(decodedText);
+      const trimmedText = decodedText.trim();
+      if (!trimmedText) {
+        throw new Error('Scanned QR code is empty.');
+      }
+      const success = await verifyLocationAndRecord(trimmedText);
       if (success) {
         onScan?.();
       }
     } catch (error) {
       console.error('Scan error:', error);
       setError(error instanceof Error ? error.message : 'Failed to process QR code');
+    } finally {
+      setScanning(false);
     }
   };
 
@@ -207,6 +215,11 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
             {error}
+          </div>
+        )}
+        {scanning && (
+          <div className="mb-4 text-center text-gray-600">
+            Processing scan, please wait...
           </div>
         )}
         <div id="qr-reader" className="w-full"></div>
