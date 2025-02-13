@@ -20,6 +20,7 @@ const locationVerificationSchema = z.object({
   placeId: z.string(),
   latitude: z.number(),
   longitude: z.number(),
+  accuracy: z.number().optional(),
   type: z.enum(['clockIn', 'breakStart', 'breakEnd', 'clockOut']),
   timestamp: z.string()
 });
@@ -171,10 +172,10 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         distance: Math.round(distance)
       });
 
-      const MAX_DISTANCE = 100; // 100 meters limit
+      const MAX_DISTANCE = 200; // Increased to 200 meters to account for GPS inaccuracy
       if (distance > MAX_DISTANCE) {
         const errorResponse = {
-          error: 'You must be within 100 meters of the workplace to register time',
+          error: `You must be within ${MAX_DISTANCE} meters of the workplace to register time`,
           distance: Math.round(distance),
           maxAllowed: MAX_DISTANCE,
           details: `You are ${Math.round(distance)}m away from ${location.name}`,
@@ -189,7 +190,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
             user: { 
               lat: latitude, 
               lng: longitude,
-              accuracy: req.body.accuracy
+              accuracy: req.body.accuracy || 'unknown'
             }
           }
         };
