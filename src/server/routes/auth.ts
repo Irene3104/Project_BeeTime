@@ -6,6 +6,7 @@ import { validateRequest } from '../middleware/validateRequest';
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import { authenticate } from '../middleware/authenticate';
+import { sendVerificationEmail } from '../services/emailService';
 
 const router = Router();
 
@@ -264,5 +265,117 @@ router.put('/update-user-info', authenticate, async (req, res) => {
     res.status(500).json({ error: '사용자 정보 업데이트에 실패했습니다.' });
   }
 });
+
+
+// 1. 비밀번호 재설정 요청 & 인증 코드 발송
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // 이메일 존재 여부 확인
+    const user = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: '등록되지 않은 이메일입니다.' });
+    }
+
+    // 6자리 인증 코드 생성
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // 이전 인증 코드 삭제
+    await prisma.verificationCode.deleteMany({
+      where: { email }
+    });
+
+    // 새 인증 코드 저장 (5분 유효)
+    await prisma.verificationCode.create({
+      data: {
+        email,
+        code: verificationCode,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+      }
+    });
+
+    // 이메일 발송
+    await sendVerificationEmail(email, verificationCode);
+
+    res.json({ message: '인증 코드가 이메일로 발송되었습니다.' });
+  } catch (error) {
+    console.error('비밀번호 재설정 요청 에러:', error);
+    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+  }
+});
+
+// 2. 인증 코드 확인
+router.post('/verify-code', async (req, res) => {
+  try {
+    const { email, code } = req.body;
+    console.log('Received verification request:', { email, code });
+
+    const verificationRecord = await prisma.verificationCode.findFirst({
+      where: {
+        email,
+        code,
+        expiresAt: {
+          gt: new Date()  // 현재 시간보다 만료 시간이 더 나중인지 확인
+        }
+      }
+    });
+
+    console.log('Found verification record:', verificationRecord);
+
+    if (!verificationRecord) {
+      return res.status(400).json({ error: '유효하지 않은 인증 코드입니다.' });
+    }
+
+    // 인증 성공 시 토큰 발급
+    const resetToken = jwt.sign(
+      { email },
+      process.env.JWT_SECRET!,
+      { expiresIn: '5m' }
+    );
+
+    res.json({ resetToken });
+  } catch (error) {
+    console.error('인증 코드 확인 에러:', error);
+    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+  }
+});
+
+// 3. 새 비밀번호 설정
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { email, newPassword, resetToken } = req.body;
+
+    // 토큰 검증
+    try {
+      jwt.verify(resetToken, process.env.JWT_SECRET!);
+    } catch (error) {
+      return res.status(401).json({ error: '유효하지 않은 토큰입니다.' });
+    }
+
+    // 비밀번호 해시화
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 비밀번호 업데이트
+    await prisma.user.update({
+      where: { email },
+      data: { password: hashedPassword }
+    });
+
+    // 인증 코드 레코드 삭제
+    await prisma.verificationCode.deleteMany({
+      where: { email }
+    });
+
+    res.json({ message: '비밀번호가 성공적으로 재설정되었습니다.' });
+  } catch (error) {
+    console.error('비밀번호 재설정 에러:', error);
+    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+  }
+});
+
 
 export { router as authRouter };

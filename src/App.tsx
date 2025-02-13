@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Signup } from './pages/Signup';
 import { Account } from './pages/Account';  
 import { TimeActivity } from './pages/TimeActivity';  
+import { ForgotPassword } from './pages/ForgotPassword';
 import './index.css';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { GoogleOAuthProvider } from '@react-oauth/google';
@@ -27,6 +28,7 @@ function App() {
           <div className="min-h-screen bg-cream-50">
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/signup" element={<Signup />} />
               <Route 
                 path="/dashboard" 

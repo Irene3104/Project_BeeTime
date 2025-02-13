@@ -21,6 +21,7 @@ model User {
   timeRecords       TimeRecord[]
   location          Location?      @relation(fields: [locationId], references: [id])
   refreshTokens     RefreshToken[]
+  verificationCodes VerificationCode[] 
   
   @@index([locationId])
 }
@@ -103,4 +104,17 @@ model RefreshToken {
   createdAt   DateTime @default(now())
 
   @@index([userId])
+}
+
+model VerificationCode {
+  id        Int      @id @default(autoincrement())
+  email     String
+  code      String    @db.VarChar(6)
+  expiresAt DateTime
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?     // nullable로 설정 (이메일이 등록되지 않은 경우도 있을 수 있음)
+
+  @@index([email])
+  @@index([expiresAt])
 }
