@@ -10,3 +10,6 @@ export const CLIENT_URL = isProduction
 
 export const GOOGLE_CALLBACK_URL = `${CLIENT_URL}/auth/google/callback`; 
 
+// API_URL 값 확인
+console.log('API_URL:', API_URL);
+

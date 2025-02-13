@@ -6,6 +6,7 @@ import { timeEntriesRouter } from './routes/timeEntries';
 import { locationRouter } from './routes/locations';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/authenticate';
+import userRouter from './routes/user';
 
 dotenv.config();
 
@@ -27,6 +28,7 @@ app.use(express.json());
 
 // Public routes
 app.use('/auth', authRouter);
+app.use('/user', userRouter);
 app.use('/locations', locationRouter);
 
 // Protected routes

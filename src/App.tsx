@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from 'react-query';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { Signup } from './pages/Signup';
+import { Account } from './pages/Account';  
 import './index.css';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { GoogleOAuthProvider } from '@react-oauth/google';
@@ -34,6 +35,7 @@ function App() {
                   </ProtectedRoute>
                 } 
               />
+              <Route path="/account" element={<Account />} />
               <Route path="/" element={<Navigate to="/login" replace />} />
               <Route path="/information" element={<Information />} />
             </Routes>
