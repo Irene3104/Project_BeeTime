@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/Button';
 import GoogleLogo from '../assets/logo_goauth.png';
 import { useState, useEffect } from 'react';
-import { GoogleLogin } from '@react-oauth/google';
+import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { API_URL } from '../config/constants';
 
 export function Login() {
@@ -43,20 +43,24 @@ export function Login() {
         throw new Error(data.error || '로그인에 실패했습니다.');
       }
 
-      // Remember me가 체크되어 있으면 localStorage에, 아니면 sessionStorage에 저장
+      // Remember me 설정에 따라 스토리지 선택
       const storage = rememberMe ? localStorage : sessionStorage;
       storage.setItem('token', data.token);
       storage.setItem('user', JSON.stringify(data.user));
       
-      // Remember me 설정 저장
       if (rememberMe) {
         localStorage.setItem('rememberMe', 'true');
-      } else {
-        localStorage.removeItem('rememberMe');
       }
-      
-      navigate('/dashboard');
+
+      // role 체크 후 리다이렉트
+      console.log('User role:', data.user.role); // 디버깅용
+      if (data.user.role === 'ADMIN') {
+        navigate('/AdminDashboard');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (error) {
+      console.error('Login error:', error); // 디버깅용
       if (error instanceof Error) {
         setError(error.message);
       } else {
@@ -65,9 +69,8 @@ export function Login() {
     }
   };
 
-  const handleGoogleSuccess = async (credentialResponse: any) => {
+  const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
     try {
-      console.log('Google login successful, credential:', credentialResponse);
       const response = await fetch(`${API_URL}/auth/google`, {
         method: 'POST',
         headers: {
@@ -79,26 +82,30 @@ export function Login() {
       });
 
       const data = await response.json();
-      console.log('Server response:', data);
-      
-      if (!response.ok) throw new Error(data.error);
 
+      if (!response.ok) {
+        throw new Error(data.error || '로그인에 실패했습니다.');
+      }
+
+      // Remember me 설정에 따라 스토리지 선택
       const storage = rememberMe ? localStorage : sessionStorage;
       storage.setItem('token', data.token);
       storage.setItem('user', JSON.stringify(data.user));
       
-      if (data.requiresProfileComplete) {
-        navigate('/information');
+      if (rememberMe) {
+        localStorage.setItem('rememberMe', 'true');
+      }
+
+      // role에 따라 다른 페이지로 리다이렉트
+      if (data.user.role === 'ADMIN') {
+        navigate('/AdminDashboard');
       } else {
         navigate('/dashboard');
       }
+
     } catch (error) {
-      console.error('Error during Google login:', error);
-      if (error instanceof Error) {
-        setError(error.message);
-      } else {
-        setError('An unknown error occurred.');
-      }
+      console.error('Google login error:', error);
+      setError('Google 로그인 중 오류가 발생했습니다.');
     }
   };
 

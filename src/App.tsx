@@ -10,6 +10,8 @@ import './index.css';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Information } from './pages/Information';
+import { AdminDashboard } from './pages/AdminDashboard';
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +37,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <Dashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/AdminDashboard" 
+                element={
+                  <ProtectedRoute>
+                    <AdminDashboard/>
                   </ProtectedRoute>
                 } 
               />
