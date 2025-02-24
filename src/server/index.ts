@@ -7,6 +7,7 @@ import { locationRouter } from './routes/locations';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/authenticate';
 import userRouter from './routes/user';
+import adminRouter from './routes/admin';
 
 dotenv.config();
 
@@ -33,6 +34,9 @@ app.use('/locations', locationRouter);
 
 // Protected routes
 app.use('/time-entries', authenticate, timeEntriesRouter);
+
+// Admin routes
+app.use('/admin', adminRouter);
 
 app.use(errorHandler);
 

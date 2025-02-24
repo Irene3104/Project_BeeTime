@@ -55,7 +55,7 @@ export function Login() {
       // role 체크 후 리다이렉트
       console.log('User role:', data.user.role); // 디버깅용
       if (data.user.role === 'ADMIN') {
-        navigate('/AdminDashboard');
+        navigate('/admin/MainDashboard');
       } else {
         navigate('/dashboard');
       }
@@ -98,7 +98,7 @@ export function Login() {
 
       // role에 따라 다른 페이지로 리다이렉트
       if (data.user.role === 'ADMIN') {
-        navigate('/AdminDashboard');
+        navigate('/admin/MainDashboard');
       } else {
         navigate('/dashboard');
       }

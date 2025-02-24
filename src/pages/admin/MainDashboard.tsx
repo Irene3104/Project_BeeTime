@@ -1,25 +1,29 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { API_URL } from '../config/constants';
-import { Logo } from '../components/Logo';
+import { API_URL } from '../../config/constants';
+import { Logo } from '../../components/Logo';
 import { HiMenu } from 'react-icons/hi';
 
 // 메뉴 아이콘 import
-import DashboardIcon from '../assets/admin_menu_dashboard.png';
-import EmployeesIcon from '../assets/admin_menu_employees.png';
-import LocationsIcon from '../assets/admin_menu_locations.png';
-import ReportsIcon from '../assets/admin_menu_reports.png';
-import SettingsIcon from '../assets/admin_menu_settings.png';
-import LogoutIcon from '../assets/admin_menu_logout.png';
+import DashboardIcon from '../../assets/admin_menu_dashboard.png';
+import EmployeesIcon from '../../assets/admin_menu_employees.png';
+import LocationsIcon from '../../assets/admin_menu_locations.png';
+import ReportsIcon from '../../assets/admin_menu_reports.png';
+import SettingsIcon from '../../assets/admin_menu_settings.png';
+import LogoutIcon from '../../assets/admin_menu_logout.png';
 
+// 대시보드 데이터 타입 정의
 interface DashboardData {
-  employeeCount: number;
-  locations: Array<{
+    employeeCount: number;
+    locations: Location[];
+    reportCount: number;
+  }
+  
+  interface Location {
+    id: number;
     name: string;
     branch?: string;
-  }>;
-  reportCount: number;
-}
+  }
 
 export const AdminDashboard = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -29,32 +33,67 @@ export const AdminDashboard = () => {
     locations: [],
     reportCount: 0
   });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    const fetchEmployeeCount = async () => {
+      console.log('[MainDashboard] Starting to fetch employee count...');
       try {
-        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        setIsLoading(true);
+        setError(null);
         
-        const response = await fetch(`${API_URL}/admin/dashboard`, {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        console.log('[MainDashboard] Using token:', token ? 'Token exists' : 'No token found');
+        
+        const response = await fetch(`${API_URL}/admin/dashboard/employee-count`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            'Authorization': `Bearer ${token}`
           }
         });
 
+        console.log('[MainDashboard] Response status:', response.status);
+        console.log('[MainDashboard] Response headers:', Object.fromEntries(response.headers.entries()));
+
         if (!response.ok) {
-          throw new Error('Failed to fetch dashboard data');
+          const errorData = await response.json();
+          console.error('[MainDashboard] Error response:', errorData);
+          throw new Error(errorData.error || 'Failed to fetch employee count');
         }
 
         const data = await response.json();
-        setDashboardData(data);
-      } catch (error) {
-        console.error('Error fetching dashboard data:', error);
+        console.log('[MainDashboard] Received data:', data);
+        
+        setDashboardData({
+          employeeCount: data.employeeCount,
+          locations: [],
+          reportCount: 0
+        });
+      } catch (err: unknown) {
+        console.error('[MainDashboard] Error details:', err instanceof Error ? {
+          name: err.name,
+          message: err.message,
+          stack: err.stack
+        } : 'Unknown error');
+        setError('Failed to fetch employee count');
+      } finally {
+        setIsLoading(false);
+        console.log('[MainDashboard] Fetch operation completed');
       }
     };
 
-    fetchDashboardData();
+    fetchEmployeeCount();
   }, []);
+
+  // 로딩 상태 처리
+  if (isLoading) {
+    return <div className="flex h-screen items-center justify-center">Loading...</div>;
+  }
+
+  // 에러 상태 처리
+  if (error) {
+    return <div className="flex h-screen items-center justify-center text-red-500">{error}</div>;
+  }
 
   const handleLogout = () => {
     localStorage.clear();
@@ -130,7 +169,7 @@ export const AdminDashboard = () => {
 
         {/* 네비게이션 */}
         <nav className="mt-8 space-y-6">
-          <Link to="/AdminDashboard" 
+          <Link to="/admin/MainDashboard" 
             className="flex items-center px-10 py-5  hover:bg-[#A77750]/20">
             <img src={DashboardIcon} alt="" className="w-[20px] h-[20px]" />
             <span className="font-montserrat mx-3 text-[18px] font-medium ">Dashboard</span>
@@ -222,7 +261,7 @@ export const AdminDashboard = () => {
                 </div>
                 <div className="bg-[#C4E1FF]/70 rounded-lg p-8">
                     <div className="flex flex-col md:flex-row justify-between">
-                        <div className="space-y-4 text-gray-600 font-montserrat p-8">
+                        <div className="space-y-4 text-gray-600 font-montserrat px-2 py-6">
                             <div>Report 2025/01/01 ~ 2025/01/14.xls</div>
                             <div>Report 2025/01/01 ~ 2025/01/14.xls</div>
                             <div>Report 2025/01/01 ~ 2025/01/14.xls</div>

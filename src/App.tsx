@@ -5,12 +5,12 @@ import { Dashboard } from './pages/Dashboard';
 import { Signup } from './pages/Signup';
 import { Account } from './pages/Account';  
 import { TimeActivity } from './pages/TimeActivity';  
+import { Information } from './pages/Information';
 import { ForgotPassword } from './pages/ForgotPassword';
-import './index.css';
+import { AdminDashboard } from './pages/admin/MainDashboard';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { Information } from './pages/Information';
-import { AdminDashboard } from './pages/AdminDashboard';
+import './index.css';
 
 
 const queryClient = new QueryClient({
@@ -41,7 +41,7 @@ function App() {
                 } 
               />
               <Route 
-                path="/AdminDashboard" 
+                path="/admin/MainDashboard" 
                 element={
                   <ProtectedRoute>
                     <AdminDashboard/>
