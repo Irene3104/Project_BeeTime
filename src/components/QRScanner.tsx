@@ -10,6 +10,9 @@ interface QRScannerProps {
   onScan: () => void;
 }
 
+// Add a type for valid time entry types
+type TimeEntryType = 'CLOCK_IN' | 'CLOCK_OUT' | 'BREAK_START' | 'BREAK_END';
+
 export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -70,7 +73,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy,
-          type,
+          type: type as TimeEntryType,
           timestamp: new Date().toISOString()
         })
       });
