@@ -1,83 +1,123 @@
-import * as XLSX from 'xlsx';
-import adminIconDownload from '../assets/admin_icon_download.png';
+import ExcelJS from 'exceljs';
 
-interface ExcelDownloaderProps {
-  data: any[];
-  columns: {
-    key: string;
-    header: string;
-    width?: number;
-  }[];
-  filename: string;
+interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  title: string;
+  location: string;
 }
 
-export const ExcelDownloader = ({ data, columns, filename }: ExcelDownloaderProps) => {
-  const handleDownload = () => {
-    // 데이터 준비
-    const excelData = data.map(item => 
-      columns.reduce((acc, col) => ({
-        ...acc,
-        [col.header]: item[col.key] || '-'
-      }), {})
-    );
+interface ExcelDownloaderProps {
+  data: Employee[];
+  pageType: 'Employees' | 'Reports' | 'Locations';
+}
 
-    // 워크시트 생성
-    const ws = XLSX.utils.json_to_sheet(excelData);
+export const ExcelDownloader = ({ data, pageType }: ExcelDownloaderProps) => {
+  // 데이터 정렬 함수 추가
+  const sortByLocation = (data: Employee[]) => {
+    return [...data].sort((a, b) => {
+      const locationA = a.location || '-';  // 빈 location은 '-'로 처리
+      const locationB = b.location || '-';
+      return locationA.localeCompare(locationB);
+    });
+  };
 
-    // 컬럼 너비 설정
-    ws['!cols'] = columns.map(col => ({ wch: col.width || 20 }));
+  const getSydneyDateTime = () => {
+    const options: Intl.DateTimeFormatOptions = {
+      timeZone: 'Australia/Sydney',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    };
+    
+    return new Date().toLocaleString('en-AU', options).split('/').reverse().join('');
+  };
 
-    // 스타일 설정
-    const headerStyle = {
-      font: { bold: true, sz: 14, name: 'Calibri' },
-      fill: { fgColor: { rgb: "#FFE26C" } },
-      alignment: { horizontal: 'center', vertical: 'center' },
-      border: {
-        top: { style: 'thin' },
-        bottom: { style: 'thin' },
-        left: { style: 'thin' },
-        right: { style: 'thin' }
-      }
+  const getFileName = () => {
+    const date = getSydneyDateTime();
+    return `${pageType}_${date}.xlsx`;
+  };
+
+  const handleDownload = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Employees');
+
+    // 정렬된 데이터 생성
+    const sortedData = sortByLocation(data);
+
+    // 헤더 설정
+    worksheet.columns = [
+      { header: 'Name', key: 'name', width: 20 },
+      { header: 'Email', key: 'email', width: 30 },
+      { header: 'Title', key: 'title', width: 15 },
+      { header: 'Location', key: 'location', width: 25 }
+    ];
+
+    // 테두리 스타일 정의
+    const normalBorderStyle = {
+      top: { style: 'thin' as const },
+      bottom: { style: 'thin' as const },
     };
 
-    const cellStyle = {
-      font: { sz: 12, name: 'Calibri' },
-      alignment: { horizontal: 'left' }
+    const headerBottomBorderStyle = {
+      top: { style: 'thin' as const },
+      bottom: { style: 'double' as const },
     };
 
-    // 스타일 적용
-    const headerCells = columns.map((_, idx) => 
-      `${String.fromCharCode(65 + idx)}1`
-    );
-    headerCells.forEach(cell => {
-      if (ws[cell]) {  // 셀 존재 여부 확인
-        ws[cell].s = headerStyle;
+    // 헤더 스타일 적용
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE479' }
+      };
+      cell.font = {
+        bold: true,
+        color: { argb: 'FF000000' }
+      };
+      cell.alignment = {
+        horizontal: 'center',
+        vertical: 'middle'
+      };
+      cell.border = headerBottomBorderStyle;  // 헤더에 이중 테두리 적용
+    });
+
+    // 정렬된 데이터 추가
+    worksheet.addRows(sortedData);
+
+    // 데이터 셀에 일반 테두리 추가
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1) {  // 헤더 제외
+        row.eachCell((cell) => {
+          cell.border = normalBorderStyle;
+          cell.alignment = {
+            horizontal: 'center',
+            vertical: 'middle'
+          };
+        });
       }
     });
 
-    // 데이터 셀 스타일 적용
-    for(let i = 2; i <= excelData.length + 1; i++) {
-      columns.forEach((_, idx) => {
-        const cell = `${String.fromCharCode(65 + idx)}${i}`;
-        if (ws[cell]) {  // 셀 존재 여부 확인
-          ws[cell].s = cellStyle;
-        }
-      });
-    }
-
-    // 워크북 생성 및 저장
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-    XLSX.writeFile(wb, `${filename}.xlsx`);
+    // 파일 다운로드
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = getFileName();
+    a.click();
+    window.URL.revokeObjectURL(url);
   };
 
   return (
     <button
       onClick={handleDownload}
-      className="flex items-center gap-2 text-[#A18206] font-montserrat"
+      className="text-[#A18206] font-montserrat flex items-center gap-2"
     >
       Download
-      <img src={adminIconDownload} alt="download" className="w-[13px] h-[13px]" />
+      <img src="/src/assets/admin_icon_download.png" alt="download" />
     </button>
   );
 };

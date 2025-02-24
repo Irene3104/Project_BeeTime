@@ -173,6 +173,7 @@ export const Employees = () => {
         <div className="flex justify-end gap-6 mt-4">
           <ExcelDownloader 
             data={formattedEmployees}
+            pageType="Employees" 
             columns={employeeColumns}
             filename="employees"
           />
