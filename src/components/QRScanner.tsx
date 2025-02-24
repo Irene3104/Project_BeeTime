@@ -18,8 +18,27 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
-  const verifyLocationAndRecord = async (placeId: string) => {
-    if (isProcessing) return; // Prevent multiple simultaneous requests
+  const getCurrentPosition = (): Promise<GeolocationPosition> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation is not supported by your browser'));
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve(position),
+        (error) => reject(error),
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0
+        }
+      );
+    });
+  };
+
+  const handleScan = async (decodedText: string) => {
+    if (isProcessing) return;
     
     try {
       setIsProcessing(true);
@@ -29,49 +48,29 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       const now = new Date();
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
 
-      const makeRequest = async (attempt: number) => {
-        try {
-          const response = await fetch(`${API_URL}/time-entries/verify-location`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              placeId,
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-              type: type as TimeEntryType,
-              timestamp: now.toISOString()
-            })
-          });
+      const response = await fetch(`${API_URL}/time-entries/verify-location`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          placeId: decodedText,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          type: type,
+          timestamp: now.toISOString()
+        })
+      });
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            if (response.status === 401) {
-              throw new Error('Session expired. Please log in again.');
-            }
-            throw new Error(errorData.error || errorData.details || 'Server error');
-          }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || errorData.details || 'Failed to verify location');
+      }
 
-          const data = await response.json();
-          onScan?.(data);
-          return data;
-
-        } catch (error) {
-          if (attempt < maxRetries && 
-              (error instanceof Error && error.message.includes('ERR_INSUFFICIENT_RESOURCES') ||
-               error instanceof Error && error.message.includes('Failed to fetch'))) {
-            // Wait before retrying (exponential backoff)
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
-            return makeRequest(attempt + 1);
-          }
-          throw error;
-        }
-      };
-
-      await makeRequest(0);
+      const data = await response.json();
+      onScan?.(data);
 
     } catch (error) {
       console.error('Scan error:', error);
@@ -81,19 +80,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     }
   };
 
-  const handleScan = async (decodedText: string) => {
-    if (isProcessing) return;
-    
-    try {
-      setIsProcessing(true);
-      await verifyLocationAndRecord(decodedText);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   useEffect(() => {
-    // Create the reader div element if it doesn't exist
     let readerElement = document.getElementById('reader');
     if (!readerElement) {
       readerElement = document.createElement('div');
@@ -101,22 +88,30 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       document.querySelector('.scanner-wrapper')?.appendChild(readerElement);
     }
 
-    // Initialize scanner after ensuring element exists
+    // Optimized scanner configuration
     scannerRef.current = new Html5QrcodeScanner(
       "reader",
       {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
+        fps: 5, // Reduced for better performance
+        qrbox: {
+          width: 300,
+          height: 300
+        },
         aspectRatio: 1.0,
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
         rememberLastUsedCamera: true,
         showTorchButtonIfSupported: true,
         disableFlip: true,
         videoConstraints: {
-          facingMode: "environment"
+          facingMode: { exact: "environment" }, // Force rear camera
+          width: { min: 640, ideal: 1280, max: 1920 },
+          height: { min: 480, ideal: 720, max: 1080 }
+        },
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true
         }
       },
-      false
+      /* verbose= */ false
     );
 
     scannerRef.current.render(handleScan, handleError);
@@ -125,13 +120,13 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       if (scannerRef.current) {
         scannerRef.current.clear();
       }
-      // Clean up the reader element
       readerElement?.remove();
     };
   }, []);
 
-  const handleError = (error: string) => {
-    console.error('QR Scan error:', error);
+  const handleError = (err: any) => {
+    console.error("QR Scanner Error:", err);
+    setError("Camera error: Please check camera permissions and try again");
   };
 
   const titles = {
