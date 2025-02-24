@@ -5,9 +5,10 @@ import { validateRequest } from '../middleware/validateRequest';
 import { toNSWTime, fromNSWTime, getCurrentNSWTime } from '../../utils/dateTime';
 import { googleMapsClient } from '../services/googleMapsClient';
 import { Prisma, Location, TimeRecord } from '@prisma/client';
-import { zonedTimeToUtc, utcToZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 
 const router = Router();
+const TIMEZONE = 'Australia/Sydney';
 
 const timeEntrySchema = z.object({
   date: z.string(),
@@ -87,26 +88,27 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     const { placeId, latitude, longitude, type, timestamp } = req.body;
     const userId = req.user!.id;
     
-    const TIMEZONE = 'Australia/Sydney';
-    
     // Convert incoming timestamp to Sydney time
-    const sydneyTime = utcToZonedTime(new Date(timestamp), TIMEZONE);
+    const sydneyTime = new Date(formatInTimeZone(
+      new Date(timestamp),
+      TIMEZONE,
+      "yyyy-MM-dd'T'HH:mm:ssXXX"
+    ));
+    
     console.log('Received timestamp (UTC):', timestamp);
     console.log('Sydney time:', sydneyTime);
 
-    // Get start of day in Sydney time, then convert back to UTC for storage
+    // Get start of day in Sydney time
     const sydneyStartOfDay = new Date(sydneyTime);
     sydneyStartOfDay.setHours(0, 0, 0, 0);
-    const utcStartOfDay = zonedTimeToUtc(sydneyStartOfDay, TIMEZONE);
     
     console.log('Start of day (Sydney):', sydneyStartOfDay);
-    console.log('Start of day (UTC):', utcStartOfDay);
 
     // First check if there's an existing time record for today
     const existingTimeRecord = await prisma.timeRecord.findFirst({
       where: {
         userId,
-        date: utcStartOfDay
+        date: sydneyStartOfDay
       }
     });
 
@@ -119,14 +121,14 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       }
 
       // Convert timestamp to UTC for storage
-      const utcTimestamp = zonedTimeToUtc(sydneyTime, TIMEZONE);
+      const utcTimestamp = formatInTimeZone(sydneyTime, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
       
       // Create new time record if none exists
       const timeRecord = await prisma.timeRecord.create({
         data: {
           userId,
           locationId: location.id,
-          date: utcStartOfDay,
+          date: sydneyStartOfDay,
           clockIn: utcTimestamp,
           status: 'active'
         }
@@ -147,7 +149,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     if (type === 'BREAK_START') {
       // ... existing break start checks ...
 
-      const utcTimestamp = zonedTimeToUtc(sydneyTime, TIMEZONE);
+      const utcTimestamp = formatInTimeZone(sydneyTime, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
       
       const breakRecord = await prisma.breakRecord.create({
         data: {
