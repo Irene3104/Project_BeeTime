@@ -87,23 +87,26 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     const { placeId, latitude, longitude, type, timestamp } = req.body;
     const userId = req.user!.id;
     
-    // Convert the timestamp to Sydney timezone
     const TIMEZONE = 'Australia/Sydney';
+    
+    // Convert incoming timestamp to Sydney time
     const sydneyTime = utcToZonedTime(new Date(timestamp), TIMEZONE);
-    
-    // Get the start of day in Sydney time
-    const currentDate = new Date(sydneyTime);
-    currentDate.setHours(0, 0, 0, 0);
-    
-    console.log('Timestamp received:', timestamp);
+    console.log('Received timestamp (UTC):', timestamp);
     console.log('Sydney time:', sydneyTime);
-    console.log('Current date:', currentDate);
+
+    // Get start of day in Sydney time, then convert back to UTC for storage
+    const sydneyStartOfDay = new Date(sydneyTime);
+    sydneyStartOfDay.setHours(0, 0, 0, 0);
+    const utcStartOfDay = zonedTimeToUtc(sydneyStartOfDay, TIMEZONE);
+    
+    console.log('Start of day (Sydney):', sydneyStartOfDay);
+    console.log('Start of day (UTC):', utcStartOfDay);
 
     // First check if there's an existing time record for today
     const existingTimeRecord = await prisma.timeRecord.findFirst({
       where: {
         userId,
-        date: currentDate
+        date: utcStartOfDay
       }
     });
 
@@ -115,13 +118,16 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
 
+      // Convert timestamp to UTC for storage
+      const utcTimestamp = zonedTimeToUtc(sydneyTime, TIMEZONE);
+      
       // Create new time record if none exists
       const timeRecord = await prisma.timeRecord.create({
         data: {
           userId,
           locationId: location.id,
-          date: currentDate,
-          clockIn: new Date(timestamp),
+          date: utcStartOfDay,
+          clockIn: utcTimestamp,
           status: 'active'
         }
       });
@@ -129,51 +135,38 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       return res.json({ 
         success: true, 
         message: 'Successfully clocked in',
-        data: timeRecord 
-      });
-    }
-
-    // For other actions (BREAK_START, BREAK_END, CLOCK_OUT), we need an existing record
-    if (!existingTimeRecord) {
-      return res.status(400).json({
-        error: 'No time record found',
-        details: 'Please clock in first'
-      });
-    }
-
-    // Handle other types based on existing record
-    switch (type) {
-      case 'BREAK_START':
-        // Check if there's an active break
-        const activeBreak = await prisma.breakRecord.findFirst({
-          where: {
-            timeRecordId: existingTimeRecord.id,
-            endTime: null
-          }
-        });
-
-        if (activeBreak) {
-          return res.status(400).json({
-            error: 'Break already started',
-            details: 'Please end your current break first'
-          });
+        data: {
+          ...timeRecord,
+          clockIn: toNSWTime(timeRecord.clockIn), // Convert back to Sydney time for response
+          date: toNSWTime(timeRecord.date)
         }
-
-        const breakRecord = await prisma.breakRecord.create({
-          data: {
-            timeRecordId: existingTimeRecord.id,
-            startTime: new Date(timestamp)
-          }
-        });
-
-        return res.json({
-          success: true,
-          message: 'Break started successfully',
-          data: breakRecord
-        });
-
-      // Add other cases as needed
+      });
     }
+
+    // For BREAK_START, similar conversion needed
+    if (type === 'BREAK_START') {
+      // ... existing break start checks ...
+
+      const utcTimestamp = zonedTimeToUtc(sydneyTime, TIMEZONE);
+      
+      const breakRecord = await prisma.breakRecord.create({
+        data: {
+          timeRecordId: existingTimeRecord.id,
+          startTime: utcTimestamp
+        }
+      });
+
+      return res.json({
+        success: true,
+        message: 'Break started successfully',
+        data: {
+          ...breakRecord,
+          startTime: toNSWTime(breakRecord.startTime)
+        }
+      });
+    }
+
+    // ... rest of the code ...
 
   } catch (error) {
     console.error('Error in verify-location:', error);

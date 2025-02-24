@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "server": "NODE_NO_WARNINGS=1 tsx src/server/index.ts",
     "init-workplaces": "tsx prisma/workplace-data.ts",
-    "db-admin": "tsx prisma/admin.ts"
+    "db-admin": "tsx prisma/admin.ts",
+    "generate-qr": "tsx scripts/generate-qr.ts",
+    "add-location": "tsx scripts/add-location.ts"
   },
   "dependencies": {
     "@googlemaps/google-maps-services-js": "^3.4.0",
@@ -28,6 +30,7 @@
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.344.0",
     "nodemailer": "^6.10.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-icons": "^5.5.0",
