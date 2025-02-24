@@ -88,30 +88,23 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       document.querySelector('.scanner-wrapper')?.appendChild(readerElement);
     }
 
-    // Optimized scanner configuration
+    // More flexible scanner configuration
     scannerRef.current = new Html5QrcodeScanner(
       "reader",
       {
-        fps: 5, // Reduced for better performance
-        qrbox: {
-          width: 300,
-          height: 300
-        },
+        fps: 10,
+        qrbox: 250,
         aspectRatio: 1.0,
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
         rememberLastUsedCamera: true,
         showTorchButtonIfSupported: true,
-        disableFlip: true,
         videoConstraints: {
-          facingMode: { exact: "environment" }, // Force rear camera
-          width: { min: 640, ideal: 1280, max: 1920 },
-          height: { min: 480, ideal: 720, max: 1080 }
-        },
-        experimentalFeatures: {
-          useBarCodeDetectorIfSupported: true
+          facingMode: "environment", // Removed 'exact' to be more flexible
+          width: { ideal: 1280 },    // Simplified resolution constraints
+          height: { ideal: 720 }
         }
       },
-      /* verbose= */ false
+      false
     );
 
     scannerRef.current.render(handleScan, handleError);
