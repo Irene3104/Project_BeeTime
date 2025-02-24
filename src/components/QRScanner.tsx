@@ -15,198 +15,115 @@ type TimeEntryType = 'CLOCK_IN' | 'CLOCK_OUT' | 'BREAK_START' | 'BREAK_END';
 
 export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   const [error, setError] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
-  
+  const [isProcessing, setIsProcessing] = useState(false);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+
   const verifyLocationAndRecord = async (placeId: string) => {
+    if (isProcessing) return; // Prevent multiple simultaneous requests
+    
     try {
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
+      setIsProcessing(true);
+      setError(null);
 
-      console.log('Getting current position...');
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        const options = {
-          enableHighAccuracy: true,
-          timeout: 30000, // Increased to 30 seconds
-          maximumAge: 0
-        };
-
-        // Try to get a quick position first
-        navigator.geolocation.getCurrentPosition(
-          resolve,
-          (error) => {
-            console.warn('First attempt failed, trying again with lower accuracy:', error);
-            // If high accuracy fails, try again with lower accuracy
-            navigator.geolocation.getCurrentPosition(
-              resolve,
-              (finalError) => {
-                console.error('Both geolocation attempts failed:', finalError);
-                reject(new Error(
-                  finalError.code === 1 ? 'Please enable location access to clock in' :
-                  finalError.code === 2 ? 'Unable to determine your location. Please ensure you have GPS enabled and try again.' :
-                  finalError.code === 3 ? 'Location request timed out. Please ensure you have GPS enabled and try again.' :
-                  'Failed to get your location'
-                ));
-              },
-              { enableHighAccuracy: false, timeout: 30000, maximumAge: 0 }
-            );
-          },
-          options
-        );
-      });
-
-      console.log('Got position:', {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy
-      });
-
-      // Get current time in local timezone
+      const position = await getCurrentPosition();
       const now = new Date();
-      console.log('Sending timestamp:', now.toISOString());
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
 
-      const response = await fetch(`${API_URL}/time-entries/verify-location`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          placeId,
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          type: type as TimeEntryType,
-          timestamp: now.toISOString()  // This will send the current local time
-        })
-      });
+      const makeRequest = async (attempt: number) => {
+        try {
+          const response = await fetch(`${API_URL}/time-entries/verify-location`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              placeId,
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              type: type as TimeEntryType,
+              timestamp: now.toISOString()
+            })
+          });
 
-      const data = await response.json();
-      console.log('Server response:', data);
+          if (!response.ok) {
+            const errorData = await response.json();
+            if (response.status === 401) {
+              throw new Error('Session expired. Please log in again.');
+            }
+            throw new Error(errorData.error || errorData.details || 'Server error');
+          }
 
-      if (response.status === 401) {
-        throw new Error('Session expired. Please log in again.');
-      }
+          const data = await response.json();
+          onScan?.(data);
+          return data;
 
-      if (!response.ok) {
-        const errorMessage = data.error || 'Failed to verify location';
-        let errorDetails = [];
-        
-        if (data.details) {
-          errorDetails.push(data.details);
+        } catch (error) {
+          if (attempt < maxRetries && 
+              (error instanceof Error && error.message.includes('ERR_INSUFFICIENT_RESOURCES') ||
+               error instanceof Error && error.message.includes('Failed to fetch'))) {
+            // Wait before retrying (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+            return makeRequest(attempt + 1);
+          }
+          throw error;
         }
+      };
 
-        if (data.googleMapsStatus) {
-          errorDetails.push(`Google Maps Status: ${data.googleMapsStatus}`);
-        }
+      await makeRequest(0);
 
-        if (data.placeId) {
-          errorDetails.push(`Place ID: ${data.placeId}`);
-        }
-        
-        if (data.coordinates) {
-          const workplace = data.coordinates.workplace;
-          const user = data.coordinates.user;
-          
-          errorDetails.push(
-            `Workplace: ${workplace.name}`,
-            `Address: ${workplace.address}`,
-            `Place ID: ${workplace.placeId}`,
-            `Workplace coordinates: (${workplace.lat}, ${workplace.lng})`,
-            `Your coordinates: (${user.lat}, ${user.lng})`,
-            `GPS Accuracy: ${user.accuracy}m`
-          );
-        }
-
-        if (data.distance) {
-          errorDetails.push(`Distance: ${data.distance}m`);
-        }
-
-        const fullError = [errorMessage, ...errorDetails].join('\n');
-        console.error('Location verification failed:', {
-          status: response.status,
-          statusText: response.statusText,
-          data
-        });
-        throw new Error(fullError);
-      }
-
-      if (data.success) {
-        console.log('Time entry recorded successfully:', data.data);
-        return true;
-      } else {
-        throw new Error('Failed to record time entry');
-      }
     } catch (error) {
-      console.error('Error:', error);
-      if (error instanceof Error) {
-        setError(error.message);
-      } else {
-        setError('An unexpected error occurred');
-      }
-      return false;
+      console.error('Scan error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to process scan');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const onScanSuccess = async (decodedText: string) => {
-    if (scanning) return; // Prevent multiple scans concurrently
-    setScanning(true);
+  const handleScan = async (decodedText: string) => {
+    if (isProcessing) return;
+    
     try {
-      console.log('Scanned QR code:', decodedText);
-      setError(null); // Clear any previous errors
-      const trimmedText = decodedText.trim();
-      if (!trimmedText) {
-        throw new Error('Scanned QR code is empty.');
-      }
-      const success = await verifyLocationAndRecord(trimmedText);
-      if (success) {
-        onScan?.();
-      }
-    } catch (error) {
-      console.error('Scan error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to process QR code');
+      setIsProcessing(true);
+      await verifyLocationAndRecord(decodedText);
     } finally {
-      setScanning(false);
+      setIsProcessing(false);
     }
   };
 
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner(
-      "qr-reader",
-      { 
-        fps: 30,
-        qrbox: { width: 300, height: 300 },
-        videoConstraints: {
-          facingMode: "environment",
-          width: { min: 640, ideal: 1280, max: 1920 },
-          height: { min: 480, ideal: 720, max: 1080 }
-        },
-        showTorchButtonIfSupported: true,
+    // Configure scanner with optimized settings
+    scannerRef.current = new Html5QrcodeScanner(
+      "reader",
+      {
+        fps: 10, // Reduce from default 30 fps to save resources
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: 1.0,
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        aspectRatio: 1.0
+        rememberLastUsedCamera: true,
+        showTorchButtonIfSupported: true,
+        // Reduce scanning frequency
+        disableFlip: true,
+        videoConstraints: {
+          facingMode: "environment"
+        }
       },
-      false
+      false // Don't start scanning immediately
     );
 
-    let lastErrorTime = 0;
-    const ERROR_COOLDOWN = 2000;
-
-    scanner.render(onScanSuccess, (error) => {
-      const now = Date.now();
-      if (!error.includes("No QR code found") && 
-          !error.includes("No MultiFormat Readers") && 
-          !error.includes("No barcode") &&
-          now - lastErrorTime > ERROR_COOLDOWN) {
-        console.error('QR Scan error:', error);
-        lastErrorTime = now;
-      }
-    });
+    scannerRef.current.render(handleScan, handleError);
 
     return () => {
-      scanner.clear().catch(console.error);
+      if (scannerRef.current) {
+        scannerRef.current.clear();
+      }
     };
   }, []);
+
+  const handleError = (error: string) => {
+    console.error('QR Scan error:', error);
+  };
 
   const titles = {
     clockIn: 'Clock In',
@@ -224,7 +141,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
             {error}
           </div>
         )}
-        {scanning && (
+        {isProcessing && (
           <div className="mb-4 text-center text-gray-600">
             Processing scan, please wait...
           </div>
