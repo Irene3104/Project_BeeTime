@@ -85,6 +85,41 @@ export const AdminDashboard = () => {
     fetchEmployeeCount();
   }, []);
 
+  useEffect(() => {
+    const fetchLocations = async () => {
+      try {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        console.log('[MainDashboard] Fetching locations...');
+        
+        const response = await fetch(`${API_URL}/admin/locations`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch locations');
+        }
+
+        const data = await response.json();
+        console.log('[MainDashboard] Raw locations response:', data);
+        
+        setDashboardData(prev => ({
+          ...prev,
+          locations: Array.isArray(data.locations) ? data.locations : []
+        }));
+      } catch (err: unknown) {
+        console.error('[MainDashboard] Error fetching locations:', err instanceof Error ? {
+          name: err.name,
+          message: err.message,
+          stack: err.stack
+        } : 'Unknown error');
+      }
+    };
+
+    fetchLocations();
+  }, []);
+
   // 로딩 상태 처리
   if (isLoading) {
     return <div className="flex h-screen items-center justify-center">Loading...</div>;
@@ -240,11 +275,11 @@ export const AdminDashboard = () => {
                             <img src={LocationsIcon} alt="" className="w-[20px] h-[17px]" />
                             <h2 className="font-montserrat text-[18px] font-semibold">Locations</h2>
                     </div>
-                    <div className="bg-[#DDC5F9]/50 rounded-lg py-[150px]">
-                        <div className="space-y-4">
+                    <div className="bg-[#DDC5F9]/50 rounded-lg py-4">
+                        <div className="space-y-4 p-4   ">
                             {dashboardData.locations.map((location, index) => (
-                                <div key={index} className="text-xl font-montserrat p-4 bg-white/50 rounded-lg">
-                                {location.name}
+                                <div key={index} className="text-[16px] text-[#333] font-semibold font-montserrat p-[8px]">
+                                • {location.name}
                                 {location.branch && ` - ${location.branch}`}
                                 </div>
                             ))}

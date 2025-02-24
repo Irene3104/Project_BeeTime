@@ -72,20 +72,35 @@ router.get('/dashboard/employee-count', authenticate, isAdmin, async (req, res) 
 });
 
 // 지점 목록만 조회하는 엔드포인트
-router.get('/admin/locations', authenticate, isAdmin, async (req, res) => {
+router.get('/locations', authenticate, isAdmin, async (req, res) => {
+  console.log('[Admin API] Location route accessed');
   try {
     const locations = await prisma.location.findMany({
       select: {
         id: true,
         name: true,
         branch: true
+      },
+      orderBy: {
+        name: 'asc'  // 이름 기준 오름차순 정렬
       }
     });
-    res.json(locations);
+    
+    console.log('[Admin API] Locations found:', locations);
+    res.json({ locations });
   } catch (error) {
-    console.error('Error fetching locations:', error);
-    res.status(500).json({ error: 'Failed to fetch locations' });
+    console.error('[Admin API] Error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch locations',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
+});
+
+// 테스트용 라우트 추가
+router.get('/test', (req, res) => {
+  console.log('[Admin API] Test route accessed');
+  res.json({ message: 'Admin router is working' });
 });
 
 export default router; 
