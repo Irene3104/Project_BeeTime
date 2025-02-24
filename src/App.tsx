@@ -10,6 +10,7 @@ import { ForgotPassword } from './pages/ForgotPassword';
 import { AdminDashboard } from './pages/admin/MainDashboard';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import { Employees } from './pages/admin/Employees';
 import './index.css';
 
 
@@ -40,14 +41,8 @@ function App() {
                   </ProtectedRoute>
                 } 
               />
-              <Route 
-                path="/admin/MainDashboard" 
-                element={
-                  <ProtectedRoute>
-                    <AdminDashboard/>
-                  </ProtectedRoute>
-                } 
-              />
+              <Route path="/admin/MainDashboard" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+              <Route path="/admin/employees" element={<ProtectedRoute><Employees /></ProtectedRoute>} />
               <Route path="/account" element={<Account />} />
               <Route path="/time-activity" element={<TimeActivity />} />
               <Route path="/" element={<Navigate to="/login" replace />} />

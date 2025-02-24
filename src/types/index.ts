@@ -108,3 +108,17 @@ export interface TimeActivityRow {
   breakOut: string | null;
   checkOut: string | null;
 }
+
+export interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  title?: string;
+  locationId: string | number;
+  location: Location;
+}
+
+export interface SortOption {
+  field: 'name' | 'title' | 'location';
+  direction: 'asc' | 'desc';
+}
