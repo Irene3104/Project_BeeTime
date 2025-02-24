@@ -62,6 +62,10 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         accuracy: position.coords.accuracy
       });
 
+      // Get current time in local timezone
+      const now = new Date();
+      console.log('Sending timestamp:', now.toISOString());
+
       const response = await fetch(`${API_URL}/time-entries/verify-location`, {
         method: 'POST',
         headers: {
@@ -74,7 +78,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy,
           type: type as TimeEntryType,
-          timestamp: new Date().toISOString()
+          timestamp: now.toISOString()  // This will send the current local time
         })
       });
 
