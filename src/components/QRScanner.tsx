@@ -93,23 +93,30 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   };
 
   useEffect(() => {
-    // Configure scanner with optimized settings
+    // Create the reader div element if it doesn't exist
+    let readerElement = document.getElementById('reader');
+    if (!readerElement) {
+      readerElement = document.createElement('div');
+      readerElement.id = 'reader';
+      document.querySelector('.scanner-wrapper')?.appendChild(readerElement);
+    }
+
+    // Initialize scanner after ensuring element exists
     scannerRef.current = new Html5QrcodeScanner(
       "reader",
       {
-        fps: 10, // Reduce from default 30 fps to save resources
+        fps: 10,
         qrbox: { width: 250, height: 250 },
         aspectRatio: 1.0,
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
         rememberLastUsedCamera: true,
         showTorchButtonIfSupported: true,
-        // Reduce scanning frequency
         disableFlip: true,
         videoConstraints: {
           facingMode: "environment"
         }
       },
-      false // Don't start scanning immediately
+      false
     );
 
     scannerRef.current.render(handleScan, handleError);
@@ -118,6 +125,8 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       if (scannerRef.current) {
         scannerRef.current.clear();
       }
+      // Clean up the reader element
+      readerElement?.remove();
     };
   }, []);
 
@@ -146,7 +155,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
             Processing scan, please wait...
           </div>
         )}
-        <div id="qr-reader" className="w-full"></div>
+        <div className="scanner-wrapper" />
         <button
           onClick={onClose}
           className="mt-4 w-full bg-yellow-400 text-white py-2 px-4 rounded-full"
