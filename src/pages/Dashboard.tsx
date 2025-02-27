@@ -19,8 +19,10 @@ export const Dashboard = () => {
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(getCurrentNSWTime());
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [showScanner, setShowScanner] = useState<{ show: boolean; type: string | null }>({ show: false, type: null });
-  const [loading, setLoading] = useState<string | null>(null);
+  const [showScanner, setShowScanner] = useState<{ show: boolean; type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut' | null }>({ show: false, type: null });
+  const [loading, setLoading] = useState<'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut' | null>(null);
+  const [lastAction, setLastAction] = useState<{ type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut'; time: string } | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // 시간 업데이트 (1초마다)
   useEffect(() => {
@@ -29,6 +31,16 @@ export const Dashboard = () => {
       }, 1000);
       return () => clearInterval(timer);
   }, []);
+
+  // Clear success message after 5 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => {
+        setSuccessMessage(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
 
   // NSW 시간대로 변환
   const nswTime = formatNSWTime(currentTime);
@@ -46,6 +58,65 @@ export const Dashboard = () => {
   const handleScanClick = (type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut') => {
     setLoading(type);
     setShowScanner({ show: true, type });
+  };
+
+  const handleScanComplete = (data: any) => {
+    // Handle the scan result
+    setShowScanner({ show: false, type: null });
+    
+    // Update last action with current time
+    if (showScanner.type) {
+      const actionType = showScanner.type;
+      const currentTimeStr = formatNSWTime(getCurrentNSWTime());
+      setLastAction({
+        type: actionType,
+        time: currentTimeStr
+      });
+      
+      // Set success message
+      const actionMessages = {
+        clockIn: 'Clock In successful!',
+        breakStart: 'Break Start recorded successfully!',
+        breakEnd: 'Break End recorded successfully!',
+        clockOut: 'Clock Out successful!'
+      };
+      
+      const message = actionMessages[actionType] || 'Action recorded successfully!';
+      setSuccessMessage(message);
+    }
+    
+    // Clear loading state
+    setLoading(null);
+  };
+
+  // Get button text based on last action
+  const getButtonText = (type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut') => {
+    if (lastAction && lastAction.type === type) {
+      return (
+        <>
+          <span className="text-[14pt]">{type === 'clockIn' ? 'Clocked' : type === 'clockOut' ? 'Clocked' : 'Break'}</span>
+          <span className="text-[14pt] -mt-2">
+            {type === 'clockIn' ? 'In' : type === 'clockOut' ? 'Out' : type === 'breakStart' ? 'Started' : 'Ended'}
+          </span>
+          <span className="text-[10pt] mt-1">{lastAction.time}</span>
+        </>
+      );
+    }
+    
+    return (
+      <>
+        <span className="text-[14pt]">{type === 'clockIn' || type === 'clockOut' ? 'Clock' : 'Break'}</span>
+        <span className="text-[14pt] -mt-2">
+          {type === 'clockIn' ? 'In' : type === 'clockOut' ? 'Out' : type === 'breakStart' ? 'Start' : 'End'}
+        </span>
+      </>
+    );
+  };
+
+  // Determine if button should be disabled
+  const isButtonDisabled = (type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut'): boolean => {
+    if (!loading) return Boolean(lastAction && lastAction.type === type);
+    return loading === type || Boolean(lastAction && lastAction.type === type);
   };
 
   return (
@@ -113,6 +184,22 @@ export const Dashboard = () => {
 
           {/* 메인 컨텐츠 */}
           <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-[#F7E3CA] pt-20">
+              {/* Success message */}
+              {successMessage && (
+                <div className="fixed top-20 left-0 right-0 mx-auto w-full max-w-md bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded z-50 flex items-center justify-between">
+                  <div className="flex items-center">
+                    <span className="text-xl mr-2">✓</span>
+                    <span>{successMessage}</span>
+                  </div>
+                  <button 
+                    onClick={() => setSuccessMessage(null)}
+                    className="text-green-700"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              
               {/* 시계 영역 - 원형 배경 추가 */}
               <div className="relative text-center m-10">
                   {/* 배경 원 - 크기 조정 */}
@@ -138,39 +225,35 @@ export const Dashboard = () => {
               {/* 버튼 그리드 */}
               <div className="grid grid-cols-2 gap-4 w-full max-w-[320px] mx-auto px-4">
                   <button 
-                    onClick={() => handleScanClick('clockIn')}
-                    disabled={loading === 'clockIn'}
-                    className="bg-[#FDCF17] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full"
+                    onClick={() => !isButtonDisabled('clockIn') && handleScanClick('clockIn')}
+                    disabled={isButtonDisabled('clockIn')}
+                    className={`${isButtonDisabled('clockIn') ? 'bg-gray-400' : 'bg-[#FDCF17]'} text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full`}
                   >
-                    <span className="text-[14pt]">Clock</span>
-                    <span className="text-[14pt] -mt-2">In</span>
+                    {getButtonText('clockIn')}
                   </button>
 
                   <button 
-                    onClick={() => handleScanClick('breakStart')}
-                    disabled={loading === 'breakStart'}
-                    className="bg-[#A07907] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full"
+                    onClick={() => !isButtonDisabled('breakStart') && handleScanClick('breakStart')}
+                    disabled={isButtonDisabled('breakStart')}
+                    className={`${isButtonDisabled('breakStart') ? 'bg-gray-400' : 'bg-[#A07907]'} text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full`}
                   >
-                    <span className="text-[14pt]">Break</span>
-                    <span className="text-[14pt] -mt-2">Start</span>
+                    {getButtonText('breakStart')}
                   </button>
 
                   <button 
-                    onClick={() => handleScanClick('breakEnd')}
-                    disabled={loading === 'breakEnd'}
-                    className="bg-[#A07907] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full"
+                    onClick={() => !isButtonDisabled('breakEnd') && handleScanClick('breakEnd')}
+                    disabled={isButtonDisabled('breakEnd')}
+                    className={`${isButtonDisabled('breakEnd') ? 'bg-gray-400' : 'bg-[#A07907]'} text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full`}
                   >
-                    <span className="text-[14pt]">Break</span>
-                    <span className="text-[14pt] -mt-2">End</span>
+                    {getButtonText('breakEnd')}
                   </button>
 
                   <button 
-                    onClick={() => handleScanClick('clockOut')}
-                    disabled={loading === 'clockOut'}
-                    className="bg-[#FDCF17] text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full"
+                    onClick={() => !isButtonDisabled('clockOut') && handleScanClick('clockOut')}
+                    disabled={isButtonDisabled('clockOut')}
+                    className={`${isButtonDisabled('clockOut') ? 'bg-gray-400' : 'bg-[#FDCF17]'} text-white rounded-3xl font-montserrat font-semibold flex flex-col items-center justify-center h-[100px] w-full`}
                   >
-                    <span className="text-[14pt]">Clock</span>
-                    <span className="text-[14pt] -mt-2">Out</span>
+                    {getButtonText('clockOut')}
                   </button>
               </div>
           </div>
@@ -178,11 +261,11 @@ export const Dashboard = () => {
           {showScanner.show && (
             <QRScanner
               type={showScanner.type!}
-              onClose={() => setShowScanner({ show: false, type: null })}
-              onScan={() => {
+              onClose={() => {
                 setShowScanner({ show: false, type: null });
-                // Optionally refresh or show success message
+                setLoading(null);
               }}
+              onScan={handleScanComplete}
             />
           )}
       </div>
