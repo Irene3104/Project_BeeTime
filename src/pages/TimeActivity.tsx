@@ -188,7 +188,7 @@ export const TimeActivity: React.FC = () => {
 
       {/* 사이드 메뉴 */}
       {isMenuOpen && (
-        <div className="fixed top-0 right-0 h-full w-[375px] bg-[#A77750] shadow-lg z-40">
+        <div className="fixed top-0 right-0 h-full w-full md:w-[375px] bg-[#A77750] shadow-lg z-40">
           {/* 닫기 버튼 */}
           <button 
             className="absolute top-6 right-6 z-50"

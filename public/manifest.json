@@ -5,7 +5,7 @@
     "start_url": "/",
     "display": "standalone",
     "background_color": "#FFFBF6",
-    "theme_color": "#FDCF17",
+    "theme_color": "#FFFBF6",
     "icons": [
       {
         "src": "logo_bee2.png",
