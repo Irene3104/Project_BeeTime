@@ -99,8 +99,8 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     console.log('Sydney time:', sydneyTime);
     console.log('Request type:', type);
 
-    // Format date as string in YYYY-MM-DD format for the database
-    const dateString = formatInTimeZone(sydneyTime, TIMEZONE, 'yyyy-MM-dd');
+    // Format date as string in DD-MM-YYYY format for the database (changed from YYYY-MM-DD)
+    const dateString = formatInTimeZone(sydneyTime, TIMEZONE, 'dd-MM-yyyy');
     const timeString = formatInTimeZone(sydneyTime, TIMEZONE, 'HH:mm');
     console.log('Date string for query:', dateString);
     console.log('Time string for storage:', timeString);
@@ -150,8 +150,8 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         data: timeRecord
       });
     }
-
-    // For BREAK_START
+    
+    // For breakStart
     if (type === 'breakStart') {
       // Check if there's an existing time record
       if (!existingTimeRecord) {
@@ -160,58 +160,76 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
           details: 'You need to clock in first before starting a break'
         });
       }
-
+      
+      // Check if break is already active
+      if (existingTimeRecord.breakStartTime && !existingTimeRecord.breakEndTime) {
+        return res.status(400).json({
+          error: 'Break already active',
+          details: 'You already have an active break'
+        });
+      }
+      
       // Update the time record with break start time
-      const updatedRecord = await prisma.timeRecord.update({
+      const updatedTimeRecord = await prisma.timeRecord.update({
         where: { id: existingTimeRecord.id },
         data: { 
-          breakStartTime: timeString
+          breakStartTime: timeString,
+          status: 'break'
         }
       });
-
+      
       return res.json({
         success: true,
         message: 'Break started successfully',
-        data: updatedRecord
+        data: updatedTimeRecord
       });
     }
-
+    
     // For breakEnd
     if (type === 'breakEnd') {
       // Check if there's an existing time record
       if (!existingTimeRecord) {
         return res.status(400).json({
           error: 'No active time record',
-          details: 'You need to clock in first before ending a break'
+          details: 'You need to clock in and start a break first before ending a break'
         });
       }
-
-      // Check if break has started
+      
+      // Check if break is active
       if (!existingTimeRecord.breakStartTime) {
         return res.status(400).json({
           error: 'No active break',
-          details: 'You need to start a break before ending it'
+          details: 'You need to start a break first before ending it'
         });
       }
-
+      
+      // Check if break is already ended
+      if (existingTimeRecord.breakStartTime && existingTimeRecord.breakEndTime) {
+        return res.status(400).json({
+          error: 'Break already ended',
+          details: 'This break has already been ended'
+        });
+      }
+      
       // Calculate break minutes
       const breakStart = new Date(`${dateString}T${existingTimeRecord.breakStartTime}:00`);
       const breakEnd = new Date(`${dateString}T${timeString}:00`);
       const breakMinutes = Math.round((breakEnd.getTime() - breakStart.getTime()) / 60000);
       
       // Update the time record with break end time
-      const updatedRecord = await prisma.timeRecord.update({
+      const updatedTimeRecord = await prisma.timeRecord.update({
         where: { id: existingTimeRecord.id },
         data: { 
           breakEndTime: timeString,
-          breakMinutes: breakMinutes
+          breakMinutes: breakMinutes,
+          status: 'active'
         }
       });
-
+      
       return res.json({
         success: true,
         message: 'Break ended successfully',
-        data: updatedRecord
+        data: updatedTimeRecord
       });
     }
 
@@ -290,7 +308,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
 // Helper function to get current time record
 async function getCurrentTimeRecord(userId: string) {
   const today = new Date();
-  const dateString = formatInTimeZone(today, TIMEZONE, 'yyyy-MM-dd');
+  const dateString = formatInTimeZone(today, TIMEZONE, 'dd-MM-yyyy');
   
   return await prisma.timeRecord.findFirst({
     where: {
@@ -322,7 +340,7 @@ router.get('/test-date', async (req, res) => {
   try {
     const now = new Date();
     const sydneyTime = formatInTimeZone(now, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
-    const dateString = formatInTimeZone(now, TIMEZONE, "yyyy-MM-dd");
+    const dateString = formatInTimeZone(now, TIMEZONE, "dd-MM-yyyy");
     
     // Test query to check date handling
     const testQuery = await prisma.timeRecord.findMany({
@@ -359,7 +377,7 @@ router.post('/clear-today', async (req, res) => {
     
     const userId = req.user.id;
     const today = new Date();
-    const dateString = formatInTimeZone(today, TIMEZONE, 'yyyy-MM-dd');
+    const dateString = formatInTimeZone(today, TIMEZONE, 'dd-MM-yyyy');
     
     console.log(`Attempting to clear time record for user ${userId} on date ${dateString}`);
     
