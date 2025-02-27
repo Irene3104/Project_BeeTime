@@ -28,6 +28,26 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Add this after app.use(express.json());
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'Server is running' });
+});
+
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'API is available' });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({ message: 'BeeTime API Server' });
+});
+
 // Public routes
 app.use('/auth', authRouter);
 app.use('/user', userRouter);
@@ -38,6 +58,32 @@ app.use('/api/time-entries', authenticate, timeEntriesRouter);
 app.use('/api/time-records', authenticate, timeRecordsRouter);
 // Admin routes
 app.use('/admin', adminRouter);
+
+// Render-specific health check
+app.get('/.well-known/render-health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+// Add this before app.use(errorHandler);
+// Catch-all route handler for undefined routes
+app.use((req, res) => {
+  console.log(`Received request for: ${req.method} ${req.url}`);
+  res.status(404).json({ 
+    error: 'Not Found',
+    message: `Cannot ${req.method} ${req.url}`,
+    availableEndpoints: [
+      '/',
+      '/health',
+      '/api/health',
+      '/auth/login',
+      '/auth/signup',
+      '/locations',
+      '/api/time-entries',
+      '/api/time-records',
+      '/admin'
+    ]
+  });
+});
 
 app.use(errorHandler);
 

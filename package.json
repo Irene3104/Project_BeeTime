@@ -13,7 +13,8 @@
     "db-admin": "tsx prisma/admin.ts",
     "generate-qr": "tsx scripts/generate-qr.ts",
     "add-location": "tsx scripts/add-location.ts",
-    "test-timerecord":  "tsx scripts/generateTestData.ts"
+    "test-timerecord":  "tsx scripts/generateTestData.ts",
+    "start": "node server.js"
   },
   "dependencies": {
     "@googlemaps/google-maps-services-js": "^3.4.0",

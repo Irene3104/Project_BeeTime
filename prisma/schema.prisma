@@ -20,7 +20,7 @@ model User {
   title             String             @default("Staff")
   locationUsers     LocationUser[]
   refreshTokens     RefreshToken[]
-  reports           Report[]
+  Report            Report[]
   timeRecords       TimeRecord[]
   location          Location?          @relation(fields: [locationId], references: [id])
   verificationCodes VerificationCode[]
@@ -39,7 +39,7 @@ model Location {
   placeId       String         @unique
   abn           String?
   locationUsers LocationUser[]
-  reports       Report[]
+  Report        Report[]
   timeRecords   TimeRecord[]
   users         User[]
 }
@@ -57,52 +57,24 @@ model LocationUser {
 }
 
 model TimeRecord {
-  id            Int       @id @default(autoincrement())
-  userId        String
-  locationId    Int
-  
-  // 날짜 (시드니 기준, DD-MM-YYYY 형식)
-  date          String    @db.VarChar(10)
-  
-  // 시간 정보 (HH:MM 형식)
-  clockInTime   String    @db.VarChar(5)
-  clockOutTime  String?   @db.VarChar(5)
+  id             Int      @id @default(autoincrement())
+  userId         String
+  locationId     Int
+  status         String   @db.VarChar(50)
+  note           String?
+  createdAt      DateTime @default(now()) @db.Timestamp(6)
+  breakMinutes   Int      @default(0)
+  breakEndTime   String?  @db.VarChar(5)
   breakStartTime String?  @db.VarChar(5)
-  breakEndTime  String?   @db.VarChar(5)
-  
-  // 계산된 시간 정보
-  breakMinutes  Int       @default(0)  // 휴식 시간(분)
-  workingHours  Float     @default(0)  // 실제 근무 시간(시간 단위, 소수점 포함)
-  
-  status        String    @db.VarChar(50)
-  note          String?   @db.Text
-  createdAt     DateTime  @default(now()) @db.Timestamp(6)
-  
-  // 관계 설정
-  user          User      @relation(fields: [userId], references: [id])
-  location      Location  @relation(fields: [locationId], references: [id])
+  clockInTime    String   @db.VarChar(5)
+  clockOutTime   String?  @db.VarChar(5)
+  workingHours   Float    @default(0)
+  date           String   @db.VarChar(10)
+  location       Location @relation(fields: [locationId], references: [id])
+  user           User     @relation(fields: [userId], references: [id])
 
-  @@index([date])
   @@unique([userId, date])
-}
-
-model Report {
-  id         Int       @id @default(autoincrement())
-  title      String
-  startDate  DateTime
-  endDate    DateTime
-  fileName   String
-  fileData   Bytes
-  locationId Int?
-  creatorId  String
-  createdAt  DateTime  @default(now()) @db.Timestamp(6)
-  updatedAt  DateTime  @updatedAt @db.Timestamp(6)
-  creator    User      @relation(fields: [creatorId], references: [id])
-  location   Location? @relation(fields: [locationId], references: [id])
-
-  @@index([startDate, endDate])
-  @@index([locationId])
-  @@index([creatorId])
+  @@index([date])
 }
 
 model RefreshToken {
@@ -127,4 +99,23 @@ model VerificationCode {
 
   @@index([email])
   @@index([expiresAt])
+}
+
+model Report {
+  id         Int       @id @default(autoincrement())
+  title      String
+  startDate  DateTime
+  endDate    DateTime
+  fileName   String
+  fileData   Bytes
+  locationId Int?
+  creatorId  String
+  createdAt  DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt  DateTime  @db.Timestamp(6)
+  User       User      @relation(fields: [creatorId], references: [id])
+  Location   Location? @relation(fields: [locationId], references: [id])
+
+  @@index([creatorId])
+  @@index([locationId])
+  @@index([startDate, endDate])
 }
