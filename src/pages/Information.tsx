@@ -113,7 +113,7 @@ const validateForm = () => {
 
   return (
      // 전체 페이지 컨테이너 - 세로 중앙 정렬, 배경색 설정
-     <div className="flex flex-col items-center justify-center min-h-[100vh] bg-[#FFFBF6] p-2">
+     <div className="flex flex-col items-center justify-center min-h-[100vh] bg-[#FFFBF6] p-8">
         {/* 폼 컨테이너 - 최대 너비 제한 */}
       <div className="w-full max-w-sm space-y-8">
          {/* 헤더 영역 - 뒤로가기 버튼과 제목 */}

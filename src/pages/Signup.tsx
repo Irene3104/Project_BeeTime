@@ -39,8 +39,8 @@ export const Signup = () => {
                 const data = await response.json();
                 setLocations(data);
             } catch (error) {
-                console.error('지점 목록 조회 실패:', error);
-                setError('지점 목록을 불러오는데 실패했습니다.');
+                console.error('Location list retrieval failed:', error);
+                setError('Failed to retrieve location list');
             }
         };
         fetchLocations();
@@ -58,31 +58,31 @@ export const Signup = () => {
 
         // 이름 검증
         if (!formData.name.trim()) {
-            errors.name = '이름을 입력해주세요';
+            errors.name = 'Name is required';
             isValid = false;
         }
 
         // 이메일 검증
         if (!formData.email) {
-            errors.email = '이메일을 입력해주세요';
+            errors.email = 'Email is required';
             isValid = false;
         } else if (!formData.email.includes('@')) {
-            errors.email = '이메일에는 @가 포함되어야 합니다';
+            errors.email = 'Email must contain @';
             isValid = false;
         } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-            errors.email = '유효한 이메일 형식이 아닙니다';
+            errors.email = 'Invalid email format';
             isValid = false;
         }
 
         // 비밀번호 검증
         if (formData.password.length < 8) {
-            errors.password = '비밀번호는 8자 이상이어야 합니다';
+            errors.password = 'Password must be at least 8 characters long';
             isValid = false;
         }
 
         // workplace 검증
         if (!formData.locationId) {
-            errors.locationId = '근무지를 선택해주세요';
+            errors.locationId = 'Work Place';
             isValid = false;
         }
 
@@ -117,7 +117,7 @@ export const Signup = () => {
             
              // API 응답이 실패인 경우 에러 처리
             if (!response.ok) {
-                throw new Error(data.error || '회원가입에 실패했습니다.');
+                throw new Error(data.error || 'Signup failed');
             }
 
              // 로그인 정보 로컬 스토리지에 저장
@@ -143,7 +143,7 @@ export const Signup = () => {
 
     return (
       // 전체 페이지 컨테이너 - 세로 중앙 정렬, 배경색 설정
-        <div className="flex flex-col items-center justify-center min-h-[100vh] bg-[#FFFBF6] p-2">
+        <div className="flex flex-col items-center justify-center min-h-[100vh] bg-[#FFFBF6] p-8">
              {/* 회원가입 폼 컨테이너 - 최대 너비 제한 */}
             <div className="w-full max-w-sm space-y-8">
                 {/* 뒤로가기 버튼 */}
@@ -218,7 +218,7 @@ export const Signup = () => {
                             ))}
                         </select>
                          {/* 드롭다운 화살표 아이콘 */}
-                        <img src={DownArrowIcon} alt="arrow" className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none" />
+                        <img src={DownArrowIcon} alt="arrow" className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none" />
                         {/* 근무지 필드 에러 메시지 */}
                         {formErrors.locationId && <p className="text-red-500 text-sm mt-1">{formErrors.locationId}</p>}
                     </div>
@@ -239,7 +239,7 @@ export const Signup = () => {
             {/* 회원가입 성공 시 표시되는 모달 */}
             <AlertModal
                 isOpen={showSuccessModal}
-                message="회원가입이 성공적으로 완료되었습니다!"
+                message="Registration completed successfully!"
                 onConfirm={handleSuccessConfirm}
             />
         </div>

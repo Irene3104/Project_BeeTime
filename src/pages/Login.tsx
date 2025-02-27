@@ -40,7 +40,7 @@ export function Login() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || '로그인에 실패했습니다.');
+        throw new Error(data.error || 'Login failed');
       }
 
       // Remember me 설정에 따라 스토리지 선택
@@ -64,7 +64,7 @@ export function Login() {
       if (error instanceof Error) {
         setError(error.message);
       } else {
-        setError('로그인 중 오류가 발생했습니다.');
+        setError('Login failed');
       }
     }
   };
@@ -84,7 +84,7 @@ export function Login() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || '로그인에 실패했습니다.');
+        throw new Error(data.error || 'Login failed');
       }
 
       // Remember me 설정에 따라 스토리지 선택
@@ -98,7 +98,7 @@ export function Login() {
 
       // 프로필 완성이 필요한 경우 Information 페이지로 리다이렉트
       if (data.requiresProfileComplete) {
-        console.log('프로필 완성이 필요합니다. Information 페이지로 이동합니다.');
+        console.log('Profile is required. Redirecting to Information page.');
         navigate('/information');
         return;
       }
@@ -117,28 +117,28 @@ export function Login() {
   };
 
   const handleGoogleButtonClick = () => {
-    console.log('Google 로그인 버튼 클릭됨');
+    console.log('Google login button clicked');
     const googleLoginDiv = document.querySelector('.google-login');
     const button = googleLoginDiv?.querySelector('div[role="button"]');
     if (button && button instanceof HTMLElement) {
       button.click();
     } else {
-      console.error('Google 로그인 버튼을 찾을 수 없습니다.');
+      console.error('Google login button not found');
     }
   };
 
   const handleGoogleLoginSuccess = (response: any) => {
-    console.log('Google 로그인 성공:', response);
+    console.log('Google login successful:', response);
     handleGoogleSuccess(response);
   };
 
   const handleGoogleLoginError = () => {
-    console.error('Google 로그인 실패');
-    setError('Google 로그인에 실패했습니다.');
+    console.error('Google login failed');
+    setError('Google login failed');
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-[#FFFBF6]">
+    <div className="flex min-h-screen flex-col items-center justify-center p-8 bg-[#FFFBF6]">
       <div className="w-full max-w-sm space-y-8">
         <div className="text-center">
           <h1 className="text-4xl font-bold mb-4 font-fredoka">Bee Time</h1>

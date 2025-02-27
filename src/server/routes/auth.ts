@@ -178,7 +178,7 @@ router.post('/google', async (req, res) => {
 
     if (!payload || !payload.email) {
       console.error('Invalid token');
-      return res.status(400).json({ error: '유효하지 않은 토큰입니다.' });
+      return res.status(400).json({ error: 'Invalid token' });
     }
     
     // 2. 이미 beetime에 가입된 이메일인지 확인
@@ -215,8 +215,8 @@ router.post('/google', async (req, res) => {
       requiresProfileComplete: !user.isProfileComplete // 추가 정보 입력 필요 여부
     });
   } catch (error) {
-    console.error('Google 로그인 에러:', error);
-    res.status(500).json({ error: 'Google 로그인 처리 중 오류가 발생했습니다.' });
+    console.error('Google login error:', error);
+    res.status(500).json({ error: 'Google login processing error' });
   }
 });
 
@@ -262,8 +262,8 @@ router.put('/update-user-info', authenticate, async (req, res) => {
       token
     });
   } catch (error) {
-    console.error('사용자 정보 업데이트 에러:', error);
-    res.status(500).json({ error: '사용자 정보 업데이트에 실패했습니다.' });
+    console.error('Failed to update user information:', error);
+    res.status(500).json({ error: 'Failed to update user information.' });
   }
 });
 
@@ -279,7 +279,7 @@ router.post('/forgot-password', async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: '등록되지 않은 이메일입니다.' });
+      return res.status(404).json({ error: 'Unregistered email' });
     }
 
     // 6자리 인증 코드 생성
@@ -302,10 +302,10 @@ router.post('/forgot-password', async (req, res) => {
     // 이메일 발송
     await sendVerificationEmail(email, verificationCode);
 
-    res.json({ message: '인증 코드가 이메일로 발송되었습니다.' });
+    res.json({ message: 'Please check your email for the verification code.' });
   } catch (error) {
-    console.error('비밀번호 재설정 요청 에러:', error);
-    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+    console.error('Password reset request error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -328,7 +328,7 @@ router.post('/verify-code', async (req, res) => {
     console.log('Found verification record:', verificationRecord);
 
     if (!verificationRecord) {
-      return res.status(400).json({ error: '유효하지 않은 인증 코드입니다.' });
+      return res.status(400).json({ error: 'Invalid verification code' });
     }
 
     // 인증 성공 시 토큰 발급
@@ -340,8 +340,8 @@ router.post('/verify-code', async (req, res) => {
 
     res.json({ resetToken });
   } catch (error) {
-    console.error('인증 코드 확인 에러:', error);
-    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+    console.error('Invalid verification code:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -354,7 +354,7 @@ router.post('/reset-password', async (req, res) => {
     try {
       jwt.verify(resetToken, process.env.JWT_SECRET!);
     } catch (error) {
-      return res.status(401).json({ error: '유효하지 않은 토큰입니다.' });
+      return res.status(401).json({ error: 'Invalid token' });
     }
 
     // 비밀번호 해시화
@@ -371,10 +371,10 @@ router.post('/reset-password', async (req, res) => {
       where: { email }
     });
 
-    res.json({ message: '비밀번호가 성공적으로 재설정되었습니다.' });
+    res.json({ message: 'Password has been successfully reset.' });
   } catch (error) {
-    console.error('비밀번호 재설정 에러:', error);
-    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+    console.error('Password reset error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -385,7 +385,7 @@ router.post('/refresh-token', async (req, res) => {
     console.log('Refresh token request received');
     
     if (!authHeader?.startsWith('Bearer ')) {
-      return res.status(401).json({ error: '인증이 필요합니다.' });
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
     const token = authHeader.split(' ')[1];
@@ -401,7 +401,7 @@ router.post('/refresh-token', async (req, res) => {
       });
       
       if (!user) {
-        return res.status(401).json({ error: '유효하지 않은 토큰입니다.' });
+        return res.status(401).json({ error: 'Invalid token' });
       }
       
       // 새 토큰 발급
@@ -426,11 +426,11 @@ router.post('/refresh-token', async (req, res) => {
       });
     } catch (error) {
       console.error('Token refresh error:', error);
-      return res.status(401).json({ error: '토큰 갱신에 실패했습니다.' });
+      return res.status(401).json({ error: 'Token refresh failed' });
     }
   } catch (error) {
     console.error('Refresh token route error:', error);
-    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
