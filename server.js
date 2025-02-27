@@ -1,23 +1,23 @@
-// This is a simple wrapper to ensure Render can properly route requests
-import { spawn } from 'child_process';
+#!/usr/bin/env node
 
-// Start the actual server
-const server = spawn('npx', ['tsx', 'src/server/index.ts'], {
-  env: { ...process.env, NODE_ENV: 'production', NODE_NO_WARNINGS: '1' },
-  stdio: 'inherit'
-});
+// This is a simple wrapper script that runs the TypeScript server directly
+import { execSync } from 'child_process';
 
-// Handle process termination
-process.on('SIGINT', () => {
-  server.kill('SIGINT');
-  process.exit(0);
-});
+// Set environment variables
+process.env.NODE_ENV = 'production';
+process.env.NODE_NO_WARNINGS = '1';
 
-process.on('SIGTERM', () => {
-  server.kill('SIGTERM');
-  process.exit(0);
-});
+console.log('Starting server via server.js wrapper...');
+console.log('Current directory:', process.cwd());
+console.log('Node version:', process.version);
 
-server.on('close', (code) => {
-  process.exit(code);
-});
+try {
+  // Run the server using tsx (which handles TypeScript files directly)
+  execSync('npx tsx src/server/index.ts', { 
+    stdio: 'inherit',
+    env: process.env
+  });
+} catch (error) {
+  console.error('Error starting server:', error);
+  process.exit(1);
+}
