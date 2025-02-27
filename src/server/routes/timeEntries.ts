@@ -212,31 +212,50 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       }
       
       try {
-        // Calculate break minutes
-        const breakStart = new Date(`${dateString}T${existingTimeRecord.breakStartTime}:00`);
-        const breakEnd = new Date(`${dateString}T${timeString}:00`);
+        // Convert DD-MM-YYYY to YYYY-MM-DD for JavaScript Date parsing
+        const [day, month, year] = dateString.split('-');
+        const isoDateString = `${year}-${month}-${day}`;
+        
+        console.log('BreakEnd - Original date string:', dateString);
+        console.log('BreakEnd - Converted ISO date string:', isoDateString);
+        
+        // Get the active break
+        const activeBreak = existingTimeRecord.breaks.find(b => b.type === 'break' && b.endTime === null);
+        
+        if (!activeBreak) {
+          return res.status(400).json({ error: 'No active break found' });
+        }
+        
+        console.log('BreakEnd - Break start time:', activeBreak.startTime);
+        console.log('BreakEnd - Break end time:', timeString);
+        
+        const breakStart = new Date(`${isoDateString}T${activeBreak.startTime.toTimeString().substring(0, 5)}:00`);
+        const breakEnd = new Date(`${isoDateString}T${timeString}:00`);
+        
+        console.log('BreakEnd - Break start date object:', breakStart);
+        console.log('BreakEnd - Break end date object:', breakEnd);
         
         // Ensure both dates are valid
         if (isNaN(breakStart.getTime()) || isNaN(breakEnd.getTime())) {
-          console.error('Invalid date calculation:', {
+          console.error('Invalid date calculation for break end:', {
             dateString,
-            breakStartTime: existingTimeRecord.breakStartTime,
+            isoDateString,
+            breakStartTime: activeBreak.startTime,
             timeString
           });
           return res.status(400).json({
             error: 'Invalid time format',
-            details: 'Could not calculate break duration due to invalid time format'
+            details: 'Could not calculate break minutes due to invalid time format'
           });
         }
         
-        // Handle case where break ends on the next day
-        let breakMinutes = Math.round((breakEnd.getTime() - breakStart.getTime()) / 60000);
+        let breakMinutes = (breakEnd.getTime() - breakStart.getTime()) / 60000;
         
         // If breakMinutes is negative, assume break ended on the next day
         if (breakMinutes < 0) {
-          const nextDayBreakEnd = new Date(`${dateString}T${timeString}:00`);
+          const nextDayBreakEnd = new Date(`${isoDateString}T${timeString}:00`);
           nextDayBreakEnd.setDate(nextDayBreakEnd.getDate() + 1);
-          breakMinutes = Math.round((nextDayBreakEnd.getTime() - breakStart.getTime()) / 60000);
+          breakMinutes = (nextDayBreakEnd.getTime() - breakStart.getTime()) / 60000;
         }
         
         // Ensure breakMinutes is at least 1 minute
@@ -287,9 +306,43 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       }
       
       // Calculate working hours
-      const clockIn = new Date(`${dateString}T${existingTimeRecord.clockInTime}:00`);
-      const clockOut = new Date(`${dateString}T${timeString}:00`);
+      // Convert DD-MM-YYYY to YYYY-MM-DD for JavaScript Date parsing
+      const [day, month, year] = dateString.split('-');
+      const isoDateString = `${year}-${month}-${day}`;
+      
+      console.log('ClockOut - Original date string:', dateString);
+      console.log('ClockOut - Converted ISO date string:', isoDateString);
+      console.log('ClockOut - Clock in time:', existingTimeRecord.clockIn);
+      console.log('ClockOut - Clock out time:', timeString);
+      
+      const clockIn = new Date(`${isoDateString}T${existingTimeRecord.clockIn.toTimeString().substring(0, 5)}:00`);
+      const clockOut = new Date(`${isoDateString}T${timeString}:00`);
+      
+      console.log('ClockOut - Clock in date object:', clockIn);
+      console.log('ClockOut - Clock out date object:', clockOut);
+      
+      // Ensure both dates are valid
+      if (isNaN(clockIn.getTime()) || isNaN(clockOut.getTime())) {
+        console.error('Invalid date calculation for clock out:', {
+          dateString,
+          isoDateString,
+          clockInTime: existingTimeRecord.clockIn,
+          timeString
+        });
+        return res.status(400).json({
+          error: 'Invalid time format',
+          details: 'Could not calculate working hours due to invalid time format'
+        });
+      }
+      
       let workingMinutes = (clockOut.getTime() - clockIn.getTime()) / 60000;
+      
+      // If workingMinutes is negative, assume clock out was on the next day
+      if (workingMinutes < 0) {
+        const nextDayClockOut = new Date(`${isoDateString}T${timeString}:00`);
+        nextDayClockOut.setDate(nextDayClockOut.getDate() + 1);
+        workingMinutes = (nextDayClockOut.getTime() - clockIn.getTime()) / 60000;
+      }
       
       // Subtract break time if there was a break
       if (existingTimeRecord.breakMinutes) {
