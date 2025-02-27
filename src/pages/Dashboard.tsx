@@ -42,6 +42,40 @@ export const Dashboard = () => {
     }
   }, [successMessage]);
 
+  // Load last actions from localStorage
+  useEffect(() => {
+    try {
+      const storedActions = localStorage.getItem('lastActions');
+      if (storedActions) {
+        const actions = JSON.parse(storedActions);
+        console.log("Loaded actions from localStorage:", actions);
+        
+        // Find the most recent action
+        let mostRecentAction: { type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut'; time: string } | null = null;
+        let mostRecentTimestamp = 0;
+        
+        Object.entries(actions).forEach(([type, action]: [string, any]) => {
+          if (action.timestamp) {
+            const timestamp = new Date(action.timestamp).getTime();
+            if (timestamp > mostRecentTimestamp) {
+              mostRecentTimestamp = timestamp;
+              mostRecentAction = {
+                type: type as 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut',
+                time: action.time
+              };
+            }
+          }
+        });
+        
+        if (mostRecentAction) {
+          setLastAction(mostRecentAction);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading actions from localStorage:", error);
+    }
+  }, []);
+
   // NSW 시간대로 변환
   const nswTime = formatNSWTime(currentTime);
   const nswDate = formatNSWDate(currentTime);
@@ -62,16 +96,50 @@ export const Dashboard = () => {
 
   const handleScanComplete = (data: any) => {
     // Handle the scan result
+    console.log("Scan complete with data:", data);
     setShowScanner({ show: false, type: null });
     
     // Update last action with current time
     if (showScanner.type) {
       const actionType = showScanner.type;
-      const currentTimeStr = formatNSWTime(getCurrentNSWTime());
+      
+      // Use the timestamp from the scan data if available, otherwise use current time
+      let timeToUse = getCurrentNSWTime();
+      if (data && data.timestamp) {
+        try {
+          // Parse the timestamp from the scan data
+          timeToUse = new Date(data.timestamp);
+          console.log("Using timestamp from scan data:", timeToUse);
+        } catch (error) {
+          console.error("Error parsing timestamp from scan data:", error);
+        }
+      }
+      
+      const currentTimeStr = formatNSWTime(timeToUse);
+      
+      // Update last action state
       setLastAction({
         type: actionType,
         time: currentTimeStr
       });
+      
+      // Store the action in localStorage to persist between refreshes
+      try {
+        const storedActions = localStorage.getItem('lastActions') 
+          ? JSON.parse(localStorage.getItem('lastActions') || '{}') 
+          : {};
+        
+        storedActions[actionType] = {
+          type: actionType,
+          time: currentTimeStr,
+          timestamp: timeToUse.toISOString()
+        };
+        
+        localStorage.setItem('lastActions', JSON.stringify(storedActions));
+        console.log("Stored action in localStorage:", storedActions);
+      } catch (error) {
+        console.error("Error storing action in localStorage:", error);
+      }
       
       // Set success message
       const actionMessages = {
@@ -91,32 +159,68 @@ export const Dashboard = () => {
 
   // Get button text based on last action
   const getButtonText = (type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut') => {
+    // Check if we have stored actions in localStorage
+    try {
+      const storedActions = localStorage.getItem('lastActions');
+      if (storedActions) {
+        const actions = JSON.parse(storedActions);
+        if (actions[type]) {
+          return (
+            <>
+              <span className="text-lg">{getActionTitle(type)}</span>
+              <span className="text-sm">{actions[type].time}</span>
+            </>
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error reading stored actions:", error);
+    }
+    
+    // If this is the last action, show the time
     if (lastAction && lastAction.type === type) {
       return (
         <>
-          <span className="text-[14pt]">{type === 'clockIn' ? 'Clocked' : type === 'clockOut' ? 'Clocked' : 'Break'}</span>
-          <span className="text-[14pt] -mt-2">
-            {type === 'clockIn' ? 'In' : type === 'clockOut' ? 'Out' : type === 'breakStart' ? 'Started' : 'Ended'}
-          </span>
-          <span className="text-[10pt] mt-1">{lastAction.time}</span>
+          <span className="text-lg">{getActionTitle(type)}</span>
+          <span className="text-sm">{lastAction.time}</span>
         </>
       );
     }
     
-    return (
-      <>
-        <span className="text-[14pt]">{type === 'clockIn' || type === 'clockOut' ? 'Clock' : 'Break'}</span>
-        <span className="text-[14pt] -mt-2">
-          {type === 'clockIn' ? 'In' : type === 'clockOut' ? 'Out' : type === 'breakStart' ? 'Start' : 'End'}
-        </span>
-      </>
-    );
+    // Default text
+    return <span className="text-lg">{getActionTitle(type)}</span>;
+  };
+  
+  // Get action title
+  const getActionTitle = (type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut') => {
+    switch (type) {
+      case 'clockIn': return 'Clock In';
+      case 'breakStart': return 'Break Start';
+      case 'breakEnd': return 'Break End';
+      case 'clockOut': return 'Clock Out';
+    }
   };
 
   // Determine if button should be disabled
   const isButtonDisabled = (type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut'): boolean => {
-    if (!loading) return Boolean(lastAction && lastAction.type === type);
-    return loading === type || Boolean(lastAction && lastAction.type === type);
+    // Check if this button is currently loading
+    if (loading === type) return true;
+    
+    // Check if this is the last action
+    if (lastAction && lastAction.type === type) return true;
+    
+    // Check localStorage for completed actions
+    try {
+      const storedActions = localStorage.getItem('lastActions');
+      if (storedActions) {
+        const actions = JSON.parse(storedActions);
+        if (actions[type]) return true;
+      }
+    } catch (error) {
+      console.error("Error checking stored actions:", error);
+    }
+    
+    return false;
   };
 
   return (

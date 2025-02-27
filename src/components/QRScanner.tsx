@@ -1023,7 +1023,14 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
               )}
             </div>
             <button 
-              onClick={onClose} 
+              onClick={() => {
+                // Call onScan with the scan data before closing
+                if (scanSuccess) {
+                  console.log("Sending scan data to parent component:", scanSuccess.data);
+                  onScan(scanSuccess.data);
+                }
+                onClose();
+              }} 
               className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded w-full"
             >
               Close
