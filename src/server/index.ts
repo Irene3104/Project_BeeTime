@@ -9,6 +9,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/authenticate';
 import userRouter from './routes/user';
 import adminRouter from './routes/admin';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -70,6 +71,30 @@ app.use('/api/time-entries', authenticate, timeEntriesRouter);
 app.use('/api/time-records', authenticate, timeRecordsRouter);
 // Admin routes
 app.use('/admin', adminRouter);
+
+// Debug endpoint for token validation
+app.post('/debug/validate-token', (req, res) => {
+  try {
+    const { token } = req.body;
+    console.log('Debug: Validating token:', token ? token.substring(0, 20) + '...' : 'No token provided');
+    
+    if (!token) {
+      return res.status(400).json({ error: 'No token provided' });
+    }
+    
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET!);
+      console.log('Debug: Token decoded successfully:', decoded);
+      return res.json({ valid: true, decoded });
+    } catch (error) {
+      console.log('Debug: Token validation error:', error);
+      return res.status(401).json({ valid: false, error: 'Invalid token' });
+    }
+  } catch (error) {
+    console.error('Debug endpoint error:', error);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // Catch-all route handler for undefined routes
 app.use((req, res) => {

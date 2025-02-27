@@ -230,6 +230,63 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     
     try {
       console.log("Checking server availability at:", API_URL);
+      
+      // Debug: Check if token exists
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      console.log("Auth token available:", !!token);
+      if (token) {
+        console.log("Token first 20 chars:", token.substring(0, 20) + "...");
+        
+        // Try to decode token to check expiration
+        try {
+          const base64Url = token.split('.')[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          
+          const payload = JSON.parse(jsonPayload);
+          console.log("Token payload:", payload);
+          
+          // Check if token is expired
+          if (payload.exp) {
+            const expiryDate = new Date(payload.exp * 1000);
+            const now = new Date();
+            console.log("Token expires:", expiryDate.toISOString());
+            console.log("Token expired:", expiryDate < now);
+          }
+          
+          // Test token validity with server
+          try {
+            console.log("Testing token validity with server...");
+            const response = await fetch(`${API_URL}/debug/validate-token`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ token })
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log("Token validation result:", data);
+              if (!data.valid) {
+                console.error("Token is invalid according to server");
+                // Clear invalid token
+                localStorage.removeItem('token');
+                sessionStorage.removeItem('token');
+              }
+            } else {
+              console.error("Token validation request failed:", response.status);
+            }
+          } catch (error) {
+            console.error("Error testing token validity:", error);
+          }
+        } catch (e) {
+          console.error("Error decoding token:", e);
+        }
+      }
+      
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
@@ -545,6 +602,47 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       
       // Normal API call (when online and not in debug mode)
       console.log("Making API call to record time entry");
+      
+      // Check token and try to refresh if needed
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      let tokenValid = !!token;
+      
+      if (token) {
+        try {
+          // Simple JWT parsing to check expiration
+          const base64Url = token.split('.')[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          
+          const payload = JSON.parse(jsonPayload);
+          
+          // Check if token is expired
+          if (payload.exp) {
+            const expiryDate = new Date(payload.exp * 1000);
+            const now = new Date();
+            const isExpired = expiryDate < now;
+            
+            if (isExpired) {
+              console.log("Token is expired, attempting to refresh");
+              tokenValid = await api.auth.refreshToken();
+            }
+          }
+        } catch (e) {
+          console.error("Error checking token expiration:", e);
+          // Try to refresh anyway
+          tokenValid = await api.auth.refreshToken();
+        }
+      }
+      
+      if (!tokenValid) {
+        console.error("No valid token available, falling back to offline mode");
+        setOfflineMode(true);
+        
+        // Recursively call this function - it will now use the offline path
+        return processWithLocation(qrData, locationData);
+      }
       
       // Prepare the data for the API call
       const apiData = {

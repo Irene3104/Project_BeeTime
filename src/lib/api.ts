@@ -11,6 +11,10 @@ import { getStorage } from '../utils/storage';
 
 const getAuthHeader = (): HeadersInit => {
   const token = getStorage().getItem('token');
+  console.log("API: Auth token available:", !!token);
+  if (token) {
+    console.log("API: Token first 20 chars:", token.substring(0, 20) + "...");
+  }
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -65,6 +69,45 @@ export const api = {
       }
 
       return response.json();
+    },
+
+    refreshToken: async (): Promise<boolean> => {
+      try {
+        console.log("Attempting to refresh token");
+        const token = getStorage().getItem('token');
+        
+        if (!token) {
+          console.log("No token to refresh");
+          return false;
+        }
+        
+        const response = await fetch(`${API_URL}/auth/refresh-token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!response.ok) {
+          console.error("Token refresh failed:", response.status);
+          return false;
+        }
+        
+        const data = await response.json();
+        
+        if (data.token) {
+          console.log("Token refreshed successfully");
+          const storage = getStorage();
+          storage.setItem('token', data.token);
+          return true;
+        }
+        
+        return false;
+      } catch (error) {
+        console.error("Error refreshing token:", error);
+        return false;
+      }
     },
   },
   
@@ -130,18 +173,37 @@ export const api = {
       type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut';
       timestamp: string;
     }) => {
-      const response = await fetch(`${API_URL}/api/time-entries/verify-location`, {
-        method: 'POST',
-        headers: getAuthHeader(),
-        body: JSON.stringify(data),
-      });
+      console.log("Calling verifyLocation API with data:", data);
+      const headers = getAuthHeader();
+      console.log("Request headers:", headers);
       
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Failed to verify location' }));
-        throw new Error(error.message || `Error: ${response.status}`);
+      try {
+        const response = await fetch(`${API_URL}/api/time-entries/verify-location`, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify(data),
+        });
+        
+        console.log("API response status:", response.status);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("API error response:", errorText);
+          try {
+            const error = JSON.parse(errorText);
+            throw new Error(error.message || error.error || `Error: ${response.status}`);
+          } catch (e) {
+            throw new Error(`Failed to verify location: ${response.status} ${errorText}`);
+          }
+        }
+        
+        const responseData = await response.json();
+        console.log("API response data:", responseData);
+        return responseData;
+      } catch (error) {
+        console.error("API call exception:", error);
+        throw error;
       }
-      
-      return response.json();
     }
   }
 };

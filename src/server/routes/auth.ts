@@ -378,5 +378,60 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// 토큰 갱신 라우트
+router.post('/refresh-token', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    console.log('Refresh token request received');
+    
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: '인증이 필요합니다.' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    
+    try {
+      // 토큰 검증
+      const decoded = jwt.verify(token, process.env.JWT_SECRET!, { ignoreExpiration: true }) as { userId: string };
+      console.log('Token decoded for refresh:', decoded);
+      
+      // 사용자 확인
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.userId }
+      });
+      
+      if (!user) {
+        return res.status(401).json({ error: '유효하지 않은 토큰입니다.' });
+      }
+      
+      // 새 토큰 발급
+      const newToken = jwt.sign(
+        { userId: user.id },
+        process.env.JWT_SECRET!,
+        { expiresIn: '7d' }
+      );
+      
+      console.log('New token issued for user:', user.id);
+      
+      // 응답
+      res.json({
+        token: newToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          locationId: user.locationId,
+          isProfileComplete: user.isProfileComplete
+        }
+      });
+    } catch (error) {
+      console.error('Token refresh error:', error);
+      return res.status(401).json({ error: '토큰 갱신에 실패했습니다.' });
+    }
+  } catch (error) {
+    console.error('Refresh token route error:', error);
+    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+  }
+});
 
 export { router as authRouter };
