@@ -1,43 +1,27 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { API_URL } from '../config/constants';
 import jsQR from 'jsqr';
 import { api, diagnostics } from '../lib/api';
-import { useRouter } from 'next/router';
-import { useToast } from '@/components/ui/use-toast';
-import { Button } from '@/components/ui/button';
 
-// Helper function to get current user ID
-const getCurrentUserId = (): string | null => {
-  // Try to get user from localStorage or sessionStorage
-  const userStr = localStorage.getItem('user') || sessionStorage.getItem('user');
-  if (userStr) {
-    try {
-      const user = JSON.parse(userStr);
-      return user.id || null;
-    } catch (e) {
-      console.error("Error parsing user data:", e);
-    }
-  }
-  
-  // If user object not found, try to extract from token
+// Helper function to get the current user ID
+const getCurrentUserId = () => {
   const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-  if (token) {
-    try {
-      // Simple JWT parsing (not secure but works for basic extraction)
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-      }).join(''));
-      
-      const payload = JSON.parse(jsonPayload);
-      return payload.id || null;
-    } catch (e) {
-      console.error("Error extracting user ID from token:", e);
-    }
-  }
+  if (!token) return null;
   
-  return null;
+  try {
+    // Simple JWT parsing (not secure but works for basic extraction)
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    
+    const payload = JSON.parse(jsonPayload);
+    return payload.id || null;
+  } catch (e) {
+    console.error("Error extracting user ID from token:", e);
+    return null;
+  }
 };
 
 // Helper function to get user-specific localStorage key
@@ -223,25 +207,16 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   
   // Check if the server is available
   const checkServerAvailability = useCallback(async () => {
-    if (import.meta.env.DEV) {
-      // In development, assume server is available
-      console.log("Development environment detected, assuming server is available");
-      setServerAvailable(true);
-      setOfflineMode(false);
-      return true;
-    }
-    
     try {
-      console.log("Checking server availability at:", API_URL);
+      // Don't automatically assume server is available in development
+      // Always check server availability regardless of environment
+      console.log("Checking server availability...");
       
-      // Debug: Check if token exists
+      // Check if we have a valid token
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      console.log("Auth token available:", !!token);
       if (token) {
-        console.log("Token first 20 chars:", token.substring(0, 20) + "...");
-        
-        // Try to decode token to check expiration
         try {
+          // Simple JWT parsing to check validity
           const base64Url = token.split('.')[1];
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
           const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
@@ -251,36 +226,34 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
           const payload = JSON.parse(jsonPayload);
           console.log("Token payload:", payload);
           
-          // Check if token is expired
-          if (payload.exp) {
-            const expiryDate = new Date(payload.exp * 1000);
-            const now = new Date();
-            console.log("Token expires:", expiryDate.toISOString());
-            console.log("Token expired:", expiryDate < now);
-          }
-          
           // Test token validity with server
           try {
             console.log("Testing token validity with server...");
-            const response = await fetch(`${API_URL}/debug/validate-token`, {
-              method: 'POST',
+            const response = await fetch(`${API_URL}/health`, {
+              method: 'GET',
               headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ token })
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
             });
             
             if (response.ok) {
-              const data = await response.json();
-              console.log("Token validation result:", data);
-              if (!data.valid) {
-                console.error("Token is invalid according to server");
-                // Clear invalid token
-                localStorage.removeItem('token');
-                sessionStorage.removeItem('token');
+              console.log("Server available at /health");
+              setServerAvailable(true);
+              setOfflineMode(false);
+              
+              // If server is available, try to sync any pending offline entries
+              const pendingCount = checkPendingOfflineEntries();
+              if (pendingCount > 0) {
+                console.log(`Found ${pendingCount} pending offline entries to sync`);
+                syncOfflineEntries().then(syncedCount => {
+                  if (syncedCount && syncedCount > 0) {
+                    checkPendingOfflineEntries();
+                  }
+                });
               }
-            } else {
-              console.error("Token validation request failed:", response.status);
+              
+              return true;
             }
           } catch (error) {
             console.error("Error testing token validity:", error);
@@ -326,7 +299,13 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       
       console.log("Server available:", isAvailable);
       setServerAvailable(isAvailable);
-      setOfflineMode(!isAvailable);
+      
+      // Only set offline mode if server is truly unavailable
+      if (!isAvailable) {
+        setOfflineMode(true);
+      } else {
+        setOfflineMode(false);
+      }
       
       // If server is available, try to sync any pending offline entries
       if (isAvailable) {
@@ -501,16 +480,20 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     try {
       const now = new Date();
       
-      // Only use debug mode if explicitly enabled or if server is unavailable in production
-      const shouldUseDebugMode = debugMode || (import.meta.env.PROD && !serverAvailable);
+      // MODIFIED: Only use debug mode if explicitly enabled by user, not due to server availability
+      // This ensures we always try to save directly to the database when server is available
+      const shouldUseDebugMode = debugMode && !forcedDebugMode;
+      
+      // MODIFIED: Check if server is actually available before going into offline mode
+      const isServerActuallyAvailable = await checkServerAvailability();
       
       if (shouldUseDebugMode) {
-        console.log("Debug mode active:", debugMode ? "manually enabled" : "forced due to server unavailability");
+        console.log("Debug mode active: manually enabled");
         console.log("QR Data:", qrData);
         console.log("Location Data:", locationData);
         
         // If we're in offline mode, save the entry to localStorage
-        if (offlineMode || !serverAvailable) {
+        if (offlineMode && !isServerActuallyAvailable) {
           console.log("Offline mode active, saving entry to local storage");
           
           // Get user ID from token if available
@@ -603,16 +586,20 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         return;
       }
       
-      // Normal API call (when online and not in debug mode)
-      console.log("Making API call to record time entry");
+      // MODIFIED: Always attempt to use the API if we're not in debug mode
+      // This ensures we prioritize direct database saving
+      console.log("Attempting to use API for direct database saving");
       
-      // Check token and try to refresh if needed
+      // Check if token is valid and refresh if needed
+      let tokenValid = true;
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      let tokenValid = !!token;
       
-      if (token) {
+      if (!token) {
+        console.error("No token available");
+        tokenValid = false;
+      } else {
         try {
-          // Simple JWT parsing to check expiration
+          // Check if token is expired
           const base64Url = token.split('.')[1];
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
           const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
@@ -620,26 +607,13 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
           }).join(''));
           
           const payload = JSON.parse(jsonPayload);
+          const expiryTime = payload.exp * 1000; // Convert to milliseconds
+          const currentTime = Date.now();
           
-          // Check if token is expired
-          if (payload.exp) {
-            const expiryDate = new Date(payload.exp * 1000);
-            const now = new Date();
-            const isExpired = expiryDate < now;
-            
-            if (isExpired) {
-              console.log("Token is expired, attempting to refresh");
-              tokenValid = await api.auth.refreshToken();
-              
-              // Log the result of token refresh attempt
-              console.log("Token refresh result:", tokenValid ? "Success" : "Failed");
-              
-              // If token refresh was successful, get the new token
-              if (tokenValid) {
-                const newToken = localStorage.getItem('token') || sessionStorage.getItem('token');
-                console.log("New token available:", !!newToken);
-              }
-            }
+          if (currentTime >= expiryTime) {
+            console.log("Token expired, attempting to refresh");
+            tokenValid = await api.auth.refreshToken();
+            console.log("Token refresh result:", tokenValid ? "Success" : "Failed");
           }
         } catch (e) {
           console.error("Error checking token expiration:", e);
@@ -649,13 +623,16 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         }
       }
       
-      if (!tokenValid) {
-        console.error("No valid token available, falling back to offline mode");
+      if (!tokenValid && !isServerActuallyAvailable) {
+        console.error("No valid token available and server not available, falling back to offline mode");
         setOfflineMode(true);
         
         // Recursively call this function - it will now use the offline path
         return processWithLocation(qrData, locationData);
       }
+      
+      // MODIFIED: Always attempt API call first, even if token is invalid
+      // The API call might still work or provide a better error message
       
       // Prepare the data for the API call
       const apiData = {
@@ -689,9 +666,9 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       } catch (error) {
         console.error('Error processing scan:', error);
         
-        // If there's a network error, try to save offline
-        if (error instanceof TypeError && error.message.includes('network')) {
-          console.log("Network error, attempting to save offline");
+        // If there's a network error or server is unavailable, try to save offline
+        if ((error instanceof TypeError && error.message.includes('network')) || !isServerActuallyAvailable) {
+          console.log("Network error or server unavailable, attempting to save offline");
           setServerAvailable(false);
           setOfflineMode(true);
           
@@ -921,14 +898,20 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     
     // Check server availability first
     checkServerAvailability().then(isAvailable => {
-      if (!isAvailable && import.meta.env.PROD) {
-        console.log("Server is not available in production. Forcing debug mode.");
-        setDebugMode(true);
-        setForcedDebugMode(true);
-        setSkipLocationCheck(true);
+      if (!isAvailable) {
+        console.log("Server is not available. Setting offline mode.");
+        setOfflineMode(true);
+        
+        // Only force debug mode if explicitly requested
+        if (import.meta.env.VITE_FORCE_DEBUG_MODE === 'true') {
+          console.log("Forcing debug mode due to configuration.");
+          setDebugMode(true);
+          setForcedDebugMode(true);
+        }
       } else if (import.meta.env.DEV) {
-        // In development, enable debug mode by default
+        // In development, enable debug mode by default but don't force it
         setDebugMode(true);
+        setForcedDebugMode(false);
       }
     });
     
