@@ -12,6 +12,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Employees } from './pages/admin/Employees';
 import { Locations } from './pages/admin/Locations';
+import { Reports } from './pages/admin/Reports';
 import './index.css';
 
 
@@ -46,9 +47,11 @@ function App() {
               <Route path="/admin/MainDashboard" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
               <Route path="/admin/employees" element={<ProtectedRoute><Employees /></ProtectedRoute>} />
               <Route path="admin/locations" element={<ProtectedRoute><Locations /></ProtectedRoute>} />
+              <Route path="/admin/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
               <Route path="/account" element={<Account />} />
               <Route path="/time-activity" element={<TimeActivity />} />
               <Route path="/information" element={<Information />} />
+              
             </Routes>
           </div>
         </Router>

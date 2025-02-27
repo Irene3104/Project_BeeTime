@@ -91,35 +91,25 @@ router.delete('/delete', authenticate, async (req, res) => {
       });
       console.log('RefreshToken 삭제 완료');
 
-      // 2. BreakRecord 삭제 (TimeRecord의 하위 레코드)
-      await tx.breakRecord.deleteMany({
-        where: {
-          timeRecord: {
-            userId
-          }
-        }
-      });
-      console.log('BreakRecord 삭제 완료');
-
-      // 3. TimeRecord 삭제 (User와 1:N 관계)
+      // 2. TimeRecord 삭제 (User와 1:N 관계)
       await tx.timeRecord.deleteMany({
         where: { userId }
       });
       console.log('TimeRecord 삭제 완료');
 
-      // 4. LocationUser 삭제 (User와 Location의 N:M 관계)
+      // 3. LocationUser 삭제 (User와 Location의 N:M 관계)
       await tx.locationUser.deleteMany({
         where: { userId }
       });
       console.log('LocationUser 삭제 완료');
 
-      // 5. WorkSummary 삭제 (User 관련 기록)
+      // 4. WorkSummary 삭제 (User 관련 기록)
       await tx.workSummary.deleteMany({
         where: { userId }
       });
       console.log('WorkSummary 삭제 완료');
 
-      // 6. 마지막으로 User 삭제
+      // 5. 마지막으로 User 삭제
       await tx.user.delete({
         where: { id: userId }
       });

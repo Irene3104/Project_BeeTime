@@ -96,7 +96,14 @@ export function Login() {
         localStorage.setItem('rememberMe', 'true');
       }
 
-      // role에 따라 다른 페이지로 리다이렉트
+      // 프로필 완성이 필요한 경우 Information 페이지로 리다이렉트
+      if (data.requiresProfileComplete) {
+        console.log('프로필 완성이 필요합니다. Information 페이지로 이동합니다.');
+        navigate('/information');
+        return;
+      }
+
+      // 프로필이 완성된 경우 role에 따라 다른 페이지로 리다이렉트
       if (data.user.role === 'ADMIN') {
         navigate('/admin/MainDashboard');
       } else {

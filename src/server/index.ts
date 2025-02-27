@@ -2,7 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { authRouter } from './routes/auth';
-import { timeEntriesRouter } from './routes/timeEntries';
+import {timeEntriesRouter} from './routes/timeEntries';
+import { timeRecordsRouter } from './routes/timeRecords';
 import { locationRouter } from './routes/locations';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/authenticate';
@@ -33,8 +34,8 @@ app.use('/user', userRouter);
 app.use('/locations', locationRouter);
 
 // Protected routes
-app.use('/time-entries', authenticate, timeEntriesRouter);
-
+app.use('/api/time-entries', authenticate, timeEntriesRouter);
+app.use('/api/time-records', authenticate, timeRecordsRouter);
 // Admin routes
 app.use('/admin', adminRouter);
 

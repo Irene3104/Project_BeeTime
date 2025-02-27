@@ -208,6 +208,7 @@ router.post('/google', async (req, res) => {
 
     // 5. 프로필 완성 여부에 따라 다른 응답 전송
     console.log('User authenticated, sending response');
+    console.log('isProfileComplete:', user.isProfileComplete); // 디버깅 로그 추가
     res.json({
       token,
       user,

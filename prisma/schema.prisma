@@ -8,22 +8,23 @@ datasource db {
 }
 
 model User {
-  id                String         @id @default(uuid())
-  email             String         @unique
+  id                String             @id @default(uuid())
+  email             String             @unique
   password          String?
   name              String?
-  role              String         @default("EMPLOYEE")
-  title             String         @default("Staff")
-  isProfileComplete Boolean        @default(false)
+  role              String             @default("EMPLOYEE")
+  isProfileComplete Boolean            @default(false)
   locationId        Int?
-  createdAt         DateTime       @default(now()) @db.Timestamp(6)
-  updatedAt         DateTime       @updatedAt @db.Timestamp(6)
+  createdAt         DateTime           @default(now()) @db.Timestamp(6)
+  updatedAt         DateTime           @updatedAt @db.Timestamp(6)
+  title             String             @default("Staff")
   locationUsers     LocationUser[]
-  timeRecords       TimeRecord[]
-  location          Location?      @relation(fields: [locationId], references: [id])
   refreshTokens     RefreshToken[]
-  verificationCodes VerificationCode[] 
-  
+  reports           Report[]
+  timeRecords       TimeRecord[]
+  location          Location?          @relation(fields: [locationId], references: [id])
+  verificationCodes VerificationCode[]
+
   @@index([locationId])
 }
 
@@ -31,13 +32,14 @@ model Location {
   id            Int            @id @default(autoincrement())
   name          String         @db.VarChar(255)
   branch        String?        @db.VarChar(100)
-  company       String?         @db.VarChar(255)
+  company       String?        @db.VarChar(255)
   address       String
-  placeId       String         @unique
-  abn           String?
   createdAt     DateTime       @default(now()) @db.Timestamp(6)
   updatedAt     DateTime       @updatedAt @db.Timestamp(6)
+  placeId       String         @unique
+  abn           String?
   locationUsers LocationUser[]
+  reports       Report[]
   timeRecords   TimeRecord[]
   users         User[]
 }
@@ -55,55 +57,61 @@ model LocationUser {
 }
 
 model TimeRecord {
-  id         Int           @id @default(autoincrement())
-  userId     String
-  locationId Int
-  date       DateTime      @db.Date
-  clockIn    DateTime      @db.Timestamp(6)
-  clockOut   DateTime?     @db.Timestamp(6)
-  status     String        @default("active") @db.VarChar(50)
-  note       String?
-  createdAt  DateTime      @default(now()) @db.Timestamp(6)
-  updatedAt  DateTime      @updatedAt @db.Timestamp(6)
-  breaks     BreakRecord[]
-  location   Location      @relation(fields: [locationId], references: [id])
-  user       User          @relation(fields: [userId], references: [id])
+  id            Int       @id @default(autoincrement())
+  userId        String
+  locationId    Int
+  
+  // 날짜 (시드니 기준, DD-MM-YYYY 형식)
+  date          String    @db.VarChar(10)
+  
+  // 시간 정보 (HH:MM 형식)
+  clockInTime   String    @db.VarChar(5)
+  clockOutTime  String?   @db.VarChar(5)
+  breakStartTime String?  @db.VarChar(5)
+  breakEndTime  String?   @db.VarChar(5)
+  
+  // 계산된 시간 정보
+  breakMinutes  Int       @default(0)  // 휴식 시간(분)
+  workingHours  Float     @default(0)  // 실제 근무 시간(시간 단위, 소수점 포함)
+  
+  status        String    @db.VarChar(50)
+  note          String?   @db.Text
+  createdAt     DateTime  @default(now()) @db.Timestamp(6)
+  
+  // 관계 설정
+  user          User      @relation(fields: [userId], references: [id])
+  location      Location  @relation(fields: [locationId], references: [id])
 
-  @@unique([userId, date])
   @@index([date])
+  @@unique([userId, date])
 }
 
-model BreakRecord {
-  id           Int        @id @default(autoincrement())
-  timeRecordId Int
-  startTime    DateTime   @db.Timestamp(6)
-  endTime      DateTime?  @db.Timestamp(6)
-  type         String     @default("lunch") @db.VarChar(50)
-  createdAt    DateTime   @default(now()) @db.Timestamp(6)
-  updatedAt    DateTime   @updatedAt @db.Timestamp(6)
-  timeRecord   TimeRecord @relation(fields: [timeRecordId], references: [id])
+model Report {
+  id         Int       @id @default(autoincrement())
+  title      String
+  startDate  DateTime
+  endDate    DateTime
+  fileName   String
+  fileData   Bytes
+  locationId Int?
+  creatorId  String
+  createdAt  DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt  DateTime  @updatedAt @db.Timestamp(6)
+  creator    User      @relation(fields: [creatorId], references: [id])
+  location   Location? @relation(fields: [locationId], references: [id])
 
-  @@index([timeRecordId])
-}
-
-model WorkSummary {
-  id           Int      @id @default(autoincrement())
-  userId       String
-  locationId   Int
-  date         DateTime @db.Date
-  totalMinutes Int
-  breakMinutes Int
-  status       String   @db.VarChar(50)
-  createdAt    DateTime @default(now()) @db.Timestamp(6)
+  @@index([startDate, endDate])
+  @@index([locationId])
+  @@index([creatorId])
 }
 
 model RefreshToken {
-  id          String   @id @default(cuid())
-  token       String   @unique
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 
   @@index([userId])
 }
@@ -111,11 +119,11 @@ model RefreshToken {
 model VerificationCode {
   id        Int      @id @default(autoincrement())
   email     String
-  code      String    @db.VarChar(6)
+  code      String   @db.VarChar(6)
   expiresAt DateTime
   createdAt DateTime @default(now()) @db.Timestamp(6)
+  userId    String?
   user      User?    @relation(fields: [userId], references: [id])
-  userId    String?     // nullable로 설정 (이메일이 등록되지 않은 경우도 있을 수 있음)
 
   @@index([email])
   @@index([expiresAt])

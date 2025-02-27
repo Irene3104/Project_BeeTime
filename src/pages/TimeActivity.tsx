@@ -18,7 +18,6 @@ import HomeIconHover from '../assets/home_hover.png';
 import UserIconHover from '../assets/user_hover.png';
 import TimeIconHover from '../assets/time_hover.png';
 
-
 export const TimeActivity: React.FC = () => {
     const navigate = useNavigate();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -39,7 +38,7 @@ export const TimeActivity: React.FC = () => {
     const dates: TimeActivityRow[] = [];
     for (let i = 0; i < 7; i++) {
       dates.push({
-        date: subDays(baseDate, 3 - i),
+        date: addDays(baseDate, i),
         checkIn: null,
         breakIn: null,
         breakOut: null,
@@ -53,32 +52,54 @@ export const TimeActivity: React.FC = () => {
   const fetchTimeRecords = async (baseDate: Date) => {
     try {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      const response = await fetch(`${API_URL}/time-entries`, {
+      
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+      
+      // 날짜 범위 설정 (현재 날짜부터 7일)
+      const startDate = format(baseDate, 'yyyy-MM-dd');
+      const endDate = format(addDays(baseDate, 6), 'yyyy-MM-dd');
+      const url = `${API_URL}/time-records?startDate=${startDate}&endDate=${endDate}`;
+      
+      console.log('요청 URL:', url);
+      console.log('토큰:', token);
+      
+      const response = await fetch(url, {
+        method: 'GET',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
       });
 
+      console.log('응답 상태:', response.status);
+      
       if (!response.ok) {
-        throw new Error('Failed to fetch time records');
+        const errorData = await response.text();
+        console.error('API 응답 에러:', errorData);
+        throw new Error(`Failed to fetch time records: ${response.status}`);
       }
 
       const data = await response.json();
+      console.log('받은 데이터:', data);
+      
       const weekDates = generateWeekDates(baseDate);
       
       // 데이터 포맷팅
       const formattedData = weekDates.map(weekDate => {
         const record = data.find((r: any) => 
-          format(new Date(r.date), 'dd/MM') === format(weekDate.date, 'dd/MM')
+          format(new Date(r.date), 'yyyy-MM-dd') === format(weekDate.date, 'yyyy-MM-dd')
         );
         
         if (record) {
           return {
             ...weekDate,
-            checkIn: record.clockIn ? format(new Date(record.clockIn), 'HH:mm') : null,
-            breakIn: record.breaks?.[0]?.startTime ? format(new Date(record.breaks[0].startTime), 'HH:mm') : null,
-            breakOut: record.breaks?.[0]?.endTime ? format(new Date(record.breaks[0].endTime), 'HH:mm') : null,
-            checkOut: record.clockOut ? format(new Date(record.clockOut), 'HH:mm') : null
+            checkIn: record.clockInTime || null,
+            breakIn: record.breakStartTime || null,
+            breakOut: record.breakEndTime || null,
+            checkOut: record.clockOutTime || null
           };
         }
         return weekDate;
@@ -87,11 +108,18 @@ export const TimeActivity: React.FC = () => {
       setTimeRecords(formattedData);
       setLoading(false);
     } catch (err) {
+      console.error('에러 발생:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
       setLoading(false);
     }
   };
 
+  // 컴포넌트 마운트 시 데이터 로드
+  useEffect(() => {
+    fetchTimeRecords(currentDate);
+  }, []);
+
+  // 날짜 변경 시 데이터 다시 로드
   useEffect(() => {
     fetchTimeRecords(currentDate);
   }, [currentDate]);
