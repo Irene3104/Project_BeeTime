@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@googlemaps/google-maps-services-js": "^3.4.0",
-    "@prisma/client": "^5.22.0",
+    "@prisma/client": "^6.4.1",
     "@react-oauth/google": "^0.12.1",
     "@zxing/library": "^0.21.3",
     "bcryptjs": "^2.4.3",
@@ -64,7 +64,7 @@
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
     "postcss": "^8.4.49",
-    "prisma": "^5.22.0",
+    "prisma": "^6.4.1",
     "tailwindcss": "^3.4.17",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",

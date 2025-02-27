@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { API_URL } from '../config/constants';
 import jsQR from 'jsqr';
-import { BrowserQRCodeReader } from '@zxing/library';
 
 interface QRScannerProps {
   type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut';
@@ -9,29 +8,21 @@ interface QRScannerProps {
   onScan: (data?: any) => void;
 }
 
-// Add a type for valid time entry types
-type TimeEntryType = 'CLOCK_IN' | 'CLOCK_OUT' | 'BREAK_START' | 'BREAK_END';
-
 export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
+  // State
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedCamera, setSelectedCamera] = useState<string>('');
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
-  const [scanMethod, setScanMethod] = useState<'jsqr' | 'zxing'>('jsqr');
   const [scanSuccess, setScanSuccess] = useState<{ message: string; data: any } | null>(null);
-  const [manualLocationMode, setManualLocationMode] = useState(false);
-  const [manualLocation, setManualLocation] = useState({ latitude: '', longitude: '' });
-  const [scannedQRData, setScannedQRData] = useState<string | null>(null);
-  const [debugMode, setDebugMode] = useState(true);
-  const [loginStatus, setLoginStatus] = useState<string>('Checking...');
-  const [serverStatus, setServerStatus] = useState<string>('Unknown');
-  const [skipLocationCheck, setSkipLocationCheck] = useState(true);
+  const [debugMode, setDebugMode] = useState(false);
+  const [skipLocationCheck, setSkipLocationCheck] = useState(false);
   
+  // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationRef = useRef<number | null>(null);
-  const zxingReaderRef = useRef<BrowserQRCodeReader | null>(null);
   
   // Get available cameras
   const getCameras = useCallback(async () => {
@@ -40,34 +31,28 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
       setCameras(videoDevices);
       
-      // Select the back camera by default if available
-      const backCamera = videoDevices.find(device => 
-        device.label.toLowerCase().includes('back') || 
-        device.label.toLowerCase().includes('rear')
-      );
-      
-      if (backCamera) {
-        setSelectedCamera(backCamera.deviceId);
-        console.log("Selected back camera:", backCamera.label);
+      // Prefer back camera on mobile devices
+      if (isMobile()) {
+        const backCamera = videoDevices.find(device => 
+          device.label.toLowerCase().includes('back') || 
+          device.label.toLowerCase().includes('rear')
+        );
+        
+        if (backCamera) {
+          setSelectedCamera(backCamera.deviceId);
+          console.log("Selected back camera:", backCamera.label);
+        } else if (videoDevices.length > 0) {
+          setSelectedCamera(videoDevices[0].deviceId);
+        }
       } else if (videoDevices.length > 0) {
+        // On desktop, just use the first camera
         setSelectedCamera(videoDevices[0].deviceId);
-        console.log("Selected first available camera:", videoDevices[0].label);
-      }
-      
-      // Force camera selection if none was selected
-      if (videoDevices.length > 0 && !selectedCamera) {
-        setTimeout(() => {
-          if (!selectedCamera && videoDevices.length > 0) {
-            console.log("Forcing camera selection");
-            setSelectedCamera(videoDevices[0].deviceId);
-          }
-        }, 500);
       }
     } catch (err) {
       console.error('Error getting cameras:', err);
       setError('Unable to access camera. Please check permissions.');
     }
-  }, [selectedCamera]);
+  }, []);
 
   // Get user's geolocation
   const getCurrentPosition = (): Promise<GeolocationPosition> => {
@@ -81,7 +66,6 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         (position) => resolve(position),
         (error) => {
           console.error('Geolocation error:', error);
-          // More user-friendly error message based on error code
           if (error.code === 1) {
             reject(new Error('Location access denied. Please enable location services.'));
           } else if (error.code === 2) {
@@ -94,7 +78,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         },
         {
           enableHighAccuracy: true,
-          timeout: 15000, // Increased from 5000ms to 15000ms (15 seconds)
+          timeout: 15000,
           maximumAge: 0
         }
       );
@@ -114,52 +98,88 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       // Stop scanning
       stopScanning();
 
-      // If we're skipping location check in debug mode
-      if (debugMode && skipLocationCheck) {
-        await processWithLocation(decodedText, {
-          latitude: 0,
-          longitude: 0,
-          accuracy: 0
-        });
+      // If we're in debug mode, bypass normal processing
+      if (debugMode) {
+        console.log("Debug mode enabled, bypassing normal processing");
+        
+        // Create mock data
+        const mockData = {
+          id: "debug-entry-" + Date.now(),
+          userId: "debug-user",
+          timestamp: new Date().toISOString(),
+          type: type,
+          location: {
+            latitude: 0,
+            longitude: 0
+          }
+        };
+        
+        // Set success state with message
+        const actionMessages = {
+          clockIn: 'Clock In successful! (Debug Mode)',
+          breakStart: 'Break Start recorded successfully! (Debug Mode)',
+          breakEnd: 'Break End recorded successfully! (Debug Mode)',
+          clockOut: 'Clock Out successful! (Debug Mode)'
+        };
+        
+        const successMessage = actionMessages[type] || 'Scan successful! (Debug Mode)';
+        
+        // Add a small delay to simulate processing
+        setTimeout(() => {
+          setScanSuccess({ message: successMessage, data: mockData });
+          setIsProcessing(false);
+        }, 1000);
+        
         return;
       }
 
+      // Normal processing with location check
       try {
-        const position = await getCurrentPosition();
-        await processWithLocation(decodedText, {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy
-        });
+        if (skipLocationCheck) {
+          await processWithLocation(decodedText, {
+            latitude: 0,
+            longitude: 0,
+            accuracy: 0
+          });
+        } else {
+          const position = await getCurrentPosition();
+          await processWithLocation(decodedText, {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy
+          });
+        }
       } catch (geoError) {
         console.error('Geolocation error:', geoError);
-        // Save the QR data and show manual location entry
-        setScannedQRData(decodedText);
-        setManualLocationMode(true);
         setError(geoError instanceof Error ? geoError.message : 'Failed to get your location');
         setIsProcessing(false);
+        
+        // Restart scanning after a short delay
+        setTimeout(() => {
+          startScanning();
+        }, 1000);
       }
     } catch (error) {
-      console.error('Scan error:', error);
+      console.error('Detailed scan error:', error);
       setError(error instanceof Error ? error.message : 'Failed to process scan');
-      // Restart scanning if there was an error
-      startScanning();
       setIsProcessing(false);
+      // Restart scanning after a short delay
+      setTimeout(() => {
+        startScanning();
+      }, 1000);
     }
   };
 
-  // Process with location data (either from geolocation or manual entry)
+  // Process with location data
   const processWithLocation = async (qrData: string, locationData: { latitude: number, longitude: number, accuracy?: number }) => {
     try {
       const now = new Date();
       
-      // Debug mode - bypass API call
+      // Debug mode - bypass API call completely
       if (debugMode) {
-        console.log("Debug mode: Bypassing API call");
-        console.log("QR Data:", qrData);
-        console.log("Location:", locationData);
+        console.log("Debug mode enabled, bypassing API call completely");
         
-        // Simulate successful response
+        // Create mock data
         const mockData = {
           id: "debug-entry-" + Date.now(),
           userId: "debug-user",
@@ -190,22 +210,27 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         return;
       }
       
-      // Rest of the function for non-debug mode
-      // Check if API_URL is defined
-      if (!API_URL) {
-        throw new Error('API URL is not defined. Please check your configuration.');
-      }
-      
-      // Get token from localStorage or sessionStorage
+      // Real API call
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       
       if (!token) {
         throw new Error('Authentication token not found. Please log in again.');
       }
 
+      console.log("Using token:", token.substring(0, 10) + "...");
+      
       const apiEndpoint = `${API_URL}/time-entries/verify-location`;
       console.log("Sending request to:", apiEndpoint);
-      console.log("With token:", token.substring(0, 10) + '...');
+      
+      // For testing/debugging - log the full request
+      console.log("Request payload:", {
+        placeId: qrData,
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        accuracy: locationData.accuracy || 0,
+        type: type,
+        timestamp: now.toISOString()
+      });
       
       try {
         const response = await fetch(apiEndpoint, {
@@ -224,17 +249,24 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
           })
         });
 
-        // Handle different HTTP status codes
+        console.log("Response status:", response.status);
+        
         if (response.status === 401 || response.status === 403) {
+          // Handle authentication error
+          localStorage.removeItem('token');
+          sessionStorage.removeItem('token');
           throw new Error('Authentication failed. Please log in again.');
         } else if (response.status === 404) {
           throw new Error('API endpoint not found. Please check server configuration.');
+        } else if (response.status === 500) {
+          throw new Error('Server error occurred. Please try again later or contact support.');
         } else if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
-          throw new Error(errorData.error || errorData.details || `Server error: ${response.status}`);
+          throw new Error(errorData.error || errorData.message || `Server error: ${response.status}`);
         }
 
         const data = await response.json();
+        console.log("Success response:", data);
         
         // Set success state with message
         const actionMessages = {
@@ -247,79 +279,23 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         const successMessage = actionMessages[type] || 'Scan successful!';
         setScanSuccess({ message: successMessage, data });
       } catch (fetchError) {
-        // Handle network errors specifically
+        console.error("Fetch error:", fetchError);
         if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
-          console.error('Network error:', fetchError);
           throw new Error(`Cannot connect to server at ${API_URL}. Please check your internet connection.`);
         }
         throw fetchError;
       }
     } catch (error) {
       console.error('API error:', error);
-      
-      // Handle specific error messages
-      let errorMessage = error instanceof Error ? error.message : 'Failed to verify location';
-      
+      let errorMessage = error instanceof Error ? error.message : 'Failed to process time entry';
       setError(errorMessage);
-      
-      // Restart scanning if there was an error with the API
-      if (!manualLocationMode) {
-        startScanning();
-      }
-    } finally {
-      // Only set isProcessing to false if we're not in debug mode
-      // For debug mode, we handle this in the setTimeout
-      if (!debugMode) {
-        setIsProcessing(false);
-      }
+      setIsProcessing(false);
     }
-  };
-
-  // Handle manual location submission
-  const handleManualLocationSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!scannedQRData) {
-      setError('No QR code data available. Please scan again.');
-      return;
-    }
-    
-    const lat = parseFloat(manualLocation.latitude);
-    const lng = parseFloat(manualLocation.longitude);
-    
-    if (isNaN(lat) || isNaN(lng)) {
-      setError('Please enter valid latitude and longitude values.');
-      return;
-    }
-    
-    setIsProcessing(true);
-    processWithLocation(scannedQRData, {
-      latitude: lat,
-      longitude: lng
-    });
-  };
-
-  // Handle manual location input change
-  const handleLocationInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setManualLocation(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  // Cancel manual location entry and restart scanning
-  const handleCancelManualLocation = () => {
-    setManualLocationMode(false);
-    setScannedQRData(null);
-    setError(null);
-    startScanning();
   };
 
   // Handle success confirmation
   const handleSuccessConfirm = () => {
     if (scanSuccess) {
-      // Call the onScan callback with the data
       onScan(scanSuccess.data);
     }
   };
@@ -354,19 +330,13 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         await videoRef.current.play();
       }
       
-      if (scanMethod === 'jsqr') {
-        // Start jsQR scanning loop
-        scanQRCode();
-      } else {
-        // Start ZXing scanning
-        startZXingScanner();
-      }
-      
+      // Start jsQR scanning loop
+      scanQRCode();
     } catch (err) {
       console.error('Error starting camera:', err);
       setError('Failed to start camera. Please check permissions and try again.');
     }
-  }, [selectedCamera, scanMethod]);
+  }, [selectedCamera]);
   
   // Stop scanning and release resources
   const stopScanning = useCallback(() => {
@@ -374,11 +344,6 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     if (animationRef.current) {
       cancelAnimationFrame(animationRef.current);
       animationRef.current = null;
-    }
-    
-    // Stop ZXing scanner
-    if (zxingReaderRef.current) {
-      zxingReaderRef.current.reset();
     }
     
     // Stop media stream
@@ -399,7 +364,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
     if (!ctx) return;
     
@@ -428,32 +393,6 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     animationRef.current = requestAnimationFrame(scanQRCode);
   }, []);
   
-  // ZXing scanning
-  const startZXingScanner = useCallback(async () => {
-    if (!videoRef.current) return;
-    
-    try {
-      if (!zxingReaderRef.current) {
-        zxingReaderRef.current = new BrowserQRCodeReader();
-      }
-      
-      const result = await zxingReaderRef.current.decodeFromVideoElement(videoRef.current);
-      if (result) {
-        processQrCode(result.getText());
-      }
-    } catch (err) {
-      console.error('ZXing error:', err);
-      // Switch to jsQR if ZXing fails
-      setScanMethod('jsqr');
-      startScanning();
-    }
-  }, []);
-  
-  // Toggle between scanning methods
-  const toggleScanMethod = useCallback(() => {
-    setScanMethod(prev => prev === 'jsqr' ? 'zxing' : 'jsqr');
-  }, []);
-  
   // Toggle debug mode
   const toggleDebugMode = () => {
     setDebugMode(prev => !prev);
@@ -461,138 +400,61 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   
   // Simulate a successful QR scan for testing
   const simulateSuccessfulScan = () => {
-    if (debugMode) {
+    if (!isProcessing && debugMode) {
       setIsProcessing(true);
       const testQRData = "TEST_QR_CODE_" + Date.now();
       console.log("Simulating successful scan with data:", testQRData);
       
-      // Directly use processWithLocation instead of processQrCode to bypass geolocation
-      processWithLocation(testQRData, {
-        latitude: -33.8688, // Sydney coordinates as example
-        longitude: 151.2093,
-        accuracy: 10
-      });
+      // Create mock data directly without API call
+      const mockData = {
+        id: "debug-entry-" + Date.now(),
+        userId: "debug-user",
+        timestamp: new Date().toISOString(),
+        type: type,
+        location: {
+          latitude: -33.8977679,
+          longitude: 151.1544713
+        }
+      };
+      
+      // Set success state with message
+      const actionMessages = {
+        clockIn: 'Clock In successful! (Debug Mode)',
+        breakStart: 'Break Start recorded successfully! (Debug Mode)',
+        breakEnd: 'Break End recorded successfully! (Debug Mode)',
+        clockOut: 'Clock Out successful! (Debug Mode)'
+      };
+      
+      const successMessage = actionMessages[type] || 'Scan successful! (Debug Mode)';
+      
+      // Add a small delay to simulate processing
+      setTimeout(() => {
+        setScanSuccess({ message: successMessage, data: mockData });
+        setIsProcessing(false);
+      }, 1000);
     }
   };
   
-  // Check login status
-  const checkLoginStatus = useCallback(() => {
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-    if (!token) {
-      setLoginStatus('Not logged in (no token found)');
-      return;
-    }
+  // Handle login redirect
+  const handleLoginRedirect = () => {
+    // Clear any existing tokens
+    localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
     
-    try {
-      // Check if token is valid JSON
-      const tokenParts = token.split('.');
-      if (tokenParts.length !== 3) {
-        setLoginStatus('Invalid token format');
-        return;
-      }
-      
-      // Try to decode the payload
-      try {
-        const payload = JSON.parse(atob(tokenParts[1]));
-        const expiry = payload.exp ? new Date(payload.exp * 1000) : null;
-        const isExpired = expiry ? expiry < new Date() : false;
-        
-        setLoginStatus(
-          `Token found (${token.substring(0, 10)}...), ` + 
-          (isExpired ? 'EXPIRED' : 'valid') +
-          (expiry ? ` until ${expiry.toLocaleString()}` : '')
-        );
-      } catch (e: unknown) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        setLoginStatus(`Token found but couldn't decode: ${errorMessage}`);
-      }
-    } catch (e: unknown) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      setLoginStatus(`Error checking token: ${errorMessage}`);
-    }
-  }, []);
+    // Redirect to login page
+    window.location.href = '/login';
+  };
   
-  // Check server status
-  const checkServerStatus = useCallback(async () => {
-    if (!API_URL) {
-      setServerStatus('API URL not defined');
-      return;
-    }
-    
-    setServerStatus('Checking...');
-    try {
-      const startTime = Date.now();
-      const response = await fetch(`${API_URL}/time-entries/test`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        // Short timeout to quickly detect if server is down
-        signal: AbortSignal.timeout(3000)
-      }).catch(error => {
-        throw new Error(`Network error: ${error.message}`);
-      });
-      
-      const elapsed = Date.now() - startTime;
-      
-      if (response.ok) {
-        setServerStatus(`Online (${elapsed}ms)`);
-      } else {
-        setServerStatus(`Error: ${response.status} ${response.statusText}`);
-      }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      setServerStatus(`Offline: ${errorMessage}`);
-    }
-  }, [API_URL]);
-  
-  // Check login status when debug mode is enabled
-  useEffect(() => {
-    if (debugMode) {
-      checkLoginStatus();
-    }
-  }, [debugMode, checkLoginStatus]);
-  
-  // Check server status when debug mode is enabled
-  useEffect(() => {
-    if (debugMode) {
-      checkServerStatus();
-    }
-  }, [debugMode, checkServerStatus]);
-  
-  // Initialize on mount - auto-trigger debug mode and check login
+  // Initialize on mount
   useEffect(() => {
     getCameras();
-    // Auto-check login status on mount
-    checkLoginStatus();
-    checkServerStatus();
-    
-    // Auto-select first camera after a short delay
-    const timer = setTimeout(() => {
-      if (cameras.length > 0 && !selectedCamera) {
-        setSelectedCamera(cameras[0].deviceId);
-      }
-    }, 1000);
     
     return () => {
       stopScanning();
-      clearTimeout(timer);
     };
-  }, [cameras]);
+  }, []);
   
-  // Auto-trigger test success in debug mode after a delay
-  useEffect(() => {
-    if (debugMode && !scanSuccess && !isProcessing) {
-      const autoTestTimer = setTimeout(() => {
-        console.log("Auto-triggering test success");
-        simulateSuccessfulScan();
-      }, 3000);
-      
-      return () => clearTimeout(autoTestTimer);
-    }
-  }, [debugMode, scanSuccess, isProcessing]);
-  
-  // Start scanning when camera is selected or scan method changes
+  // Start scanning when camera is selected
   useEffect(() => {
     if (selectedCamera) {
       startScanning();
@@ -601,7 +463,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     return () => {
       stopScanning();
     };
-  }, [selectedCamera, scanMethod]);
+  }, [selectedCamera]);
   
   // Handle camera selection change
   const handleCameraChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -627,7 +489,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       <div className="bg-white p-4 rounded-lg w-full max-w-md">
         <h2 className="text-xl font-bold mb-4 text-center">Scan QR Code for {titles[type]}</h2>
         
-        {/* Debug mode toggle - Moved to top for better visibility */}
+        {/* Debug mode toggle */}
         <div className="mb-4 p-3 bg-yellow-100 rounded border-2 border-yellow-400">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center">
@@ -639,54 +501,35 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
                 className="mr-2 h-6 w-6"
               />
               <label htmlFor="debug-mode" className="text-base font-bold text-gray-700">
-                Debug Mode (ENABLED)
+                Debug Mode {debugMode ? '(ENABLED)' : '(DISABLED)'}
               </label>
             </div>
           </div>
           
-          <div className="flex items-center mb-2">
-            <input
-              type="checkbox"
-              id="skip-location"
-              checked={skipLocationCheck}
-              onChange={() => setSkipLocationCheck(prev => !prev)}
-              className="mr-2 h-6 w-6"
-            />
-            <label htmlFor="skip-location" className="text-base text-gray-700 font-bold">
-              Skip Location Check
-            </label>
-          </div>
-          
-          {/* Make Test Success button more prominent */}
-          <button
-            onClick={simulateSuccessfulScan}
-            className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg text-lg font-bold mb-2"
-            disabled={isProcessing}
-          >
-            {isProcessing ? "Processing..." : "Test Success (Click Here)"}
-          </button>
-          
-          <div className="text-sm bg-white p-2 rounded overflow-auto max-h-32 border border-gray-200">
-            <p className="font-bold">Debug Info:</p>
-            <p>API URL: {API_URL || 'Not defined'}</p>
-            <p>Server Status: <span className={serverStatus.includes('Online') ? 'text-green-600' : 'text-red-600'}>{serverStatus}</span></p>
-            <p>Login Status: {loginStatus}</p>
-            <p>Camera Selected: {selectedCamera || 'None'}</p>
-            <div className="flex space-x-2 mt-1">
-              <button 
-                onClick={checkLoginStatus}
-                className="bg-gray-300 text-gray-800 px-2 py-1 rounded text-xs"
+          {debugMode && (
+            <>
+              <div className="flex items-center mb-2">
+                <input
+                  type="checkbox"
+                  id="skip-location"
+                  checked={skipLocationCheck}
+                  onChange={() => setSkipLocationCheck(prev => !prev)}
+                  className="mr-2 h-6 w-6"
+                />
+                <label htmlFor="skip-location" className="text-base text-gray-700 font-bold">
+                  Skip Location Check
+                </label>
+              </div>
+              
+              <button
+                onClick={simulateSuccessfulScan}
+                className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg text-lg font-bold mb-2"
+                disabled={isProcessing}
               >
-                Check Login
+                {isProcessing ? "Processing..." : "Test Success (Click Here)"}
               </button>
-              <button 
-                onClick={checkServerStatus}
-                className="bg-gray-300 text-gray-800 px-2 py-1 rounded text-xs"
-              >
-                Check Server
-              </button>
-            </div>
-          </div>
+            </>
+          )}
         </div>
         
         {/* Success message */}
@@ -703,71 +546,6 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
                 OK
               </button>
             </div>
-          </div>
-        ) : manualLocationMode ? (
-          <div>
-            <div className="mb-4 bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
-              <p className="font-bold">Location services unavailable</p>
-              <p className="text-sm">Please enter your current location manually to continue.</p>
-            </div>
-            
-            {error && (
-              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                {error}
-              </div>
-            )}
-            
-            <form onSubmit={handleManualLocationSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="latitude" className="block text-sm font-medium text-gray-700 mb-1">
-                  Latitude
-                </label>
-                <input
-                  type="text"
-                  id="latitude"
-                  name="latitude"
-                  value={manualLocation.latitude}
-                  onChange={handleLocationInputChange}
-                  placeholder="e.g. -33.8688"
-                  className="w-full p-2 border border-gray-300 rounded-md"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="longitude" className="block text-sm font-medium text-gray-700 mb-1">
-                  Longitude
-                </label>
-                <input
-                  type="text"
-                  id="longitude"
-                  name="longitude"
-                  value={manualLocation.longitude}
-                  onChange={handleLocationInputChange}
-                  placeholder="e.g. 151.2093"
-                  className="w-full p-2 border border-gray-300 rounded-md"
-                  required
-                />
-              </div>
-              
-              <div className="flex space-x-2">
-                <button
-                  type="button"
-                  onClick={handleCancelManualLocation}
-                  className="flex-1 bg-gray-300 text-gray-800 py-2 px-4 rounded-full"
-                  disabled={isProcessing}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-blue-500 text-white py-2 px-4 rounded-full"
-                  disabled={isProcessing}
-                >
-                  Submit
-                </button>
-              </div>
-            </form>
           </div>
         ) : (
           <>
@@ -807,12 +585,21 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
             {error && (
               <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
                 {error}
-                <button 
-                  onClick={handleRetry}
-                  className="ml-2 bg-red-500 text-white px-2 py-1 rounded text-sm"
-                >
-                  Retry
-                </button>
+                {error.includes('Authentication failed') ? (
+                  <button 
+                    onClick={handleLoginRedirect}
+                    className="ml-2 bg-blue-500 text-white px-2 py-1 rounded text-sm"
+                  >
+                    Go to Login
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleRetry}
+                    className="ml-2 bg-red-500 text-white px-2 py-1 rounded text-sm"
+                  >
+                    Retry
+                  </button>
+                )}
               </div>
             )}
             
@@ -855,13 +642,6 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
                 disabled={isProcessing}
               >
                 Cancel
-              </button>
-              <button
-                onClick={toggleScanMethod}
-                className="flex-1 bg-blue-500 text-white py-2 px-4 rounded-full"
-                disabled={isProcessing}
-              >
-                {scanMethod === 'jsqr' ? 'Try Alternative Method' : 'Switch to Default'}
               </button>
               <button
                 onClick={handleRetry}
