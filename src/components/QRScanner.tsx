@@ -3,23 +3,46 @@ import { API_URL } from '../config/constants';
 import jsQR from 'jsqr';
 import { api, diagnostics } from '../lib/api';
 
-// Helper function to get the current user ID
+// Helper function to get the current user ID from the token
 const getCurrentUserId = () => {
-  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-  if (!token) return null;
-  
   try {
-    // Simple JWT parsing (not secure but works for basic extraction)
-    const base64Url = token.split('.')[1];
+    // Try to get token from both localStorage and sessionStorage
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    
+    if (!token) {
+      console.log("No token found for user ID extraction");
+      return null;
+    }
+    
+    // Clean the token if needed (remove quotes)
+    let cleanToken = token;
+    if (token.startsWith('"') && token.endsWith('"')) {
+      cleanToken = token.slice(1, -1);
+      console.log("Removed quotes from token for user ID extraction");
+    }
+    
+    // Parse the JWT token
+    const parts = cleanToken.split('.');
+    if (parts.length !== 3) {
+      console.log("Token doesn't appear to be in JWT format");
+      return null;
+    }
+    
+    const base64Url = parts[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
       return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
     }).join(''));
     
     const payload = JSON.parse(jsonPayload);
-    return payload.id || null;
-  } catch (e) {
-    console.error("Error extracting user ID from token:", e);
+    
+    // Check for userId or id in the payload
+    const userId = payload.userId || payload.id;
+    console.log("Extracted user ID from token:", userId);
+    
+    return userId;
+  } catch (error) {
+    console.error("Error extracting user ID from token:", error);
     return null;
   }
 };

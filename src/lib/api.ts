@@ -10,33 +10,61 @@ import type {
 import { getStorage } from '../utils/storage';
 
 const getAuthHeader = (): HeadersInit => {
-  const token = getStorage().getItem('token');
+  // Try to get token from both localStorage and sessionStorage
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
   console.log("API: Auth token available:", !!token);
+  
   if (token) {
     // Log token details for debugging
     try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-      }).join(''));
+      // Check if token is already a JWT or needs to be cleaned
+      let cleanToken = token;
       
-      const payload = JSON.parse(jsonPayload);
-      const expiryDate = new Date(payload.exp * 1000);
-      const now = new Date();
-      const isExpired = expiryDate < now;
+      // Remove quotes if they exist (handles tokens stored with quotes)
+      if (token.startsWith('"') && token.endsWith('"')) {
+        cleanToken = token.slice(1, -1);
+        console.log("API: Removed quotes from token");
+      }
       
-      console.log("API: Token first 20 chars:", token.substring(0, 20) + "...");
-      console.log("API: Token expiry:", expiryDate.toISOString());
-      console.log("API: Token expired:", isExpired);
+      // Try to decode the token
+      try {
+        const parts = cleanToken.split('.');
+        if (parts.length === 3) {
+          // Looks like a valid JWT format
+          const base64Url = parts[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          
+          const payload = JSON.parse(jsonPayload);
+          const expiryDate = new Date(payload.exp * 1000);
+          const now = new Date();
+          const isExpired = expiryDate < now;
+          
+          console.log("API: Token first 20 chars:", cleanToken.substring(0, 20) + "...");
+          console.log("API: Token expiry:", expiryDate.toISOString());
+          console.log("API: Token expired:", isExpired);
+          console.log("API: Token payload:", payload);
+        } else {
+          console.log("API: Token doesn't appear to be in JWT format, using as-is");
+        }
+      } catch (e) {
+        console.error("API: Error parsing token:", e);
+      }
+      
+      // Return the cleaned token in the Authorization header
+      return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cleanToken}`
+      };
     } catch (e) {
-      console.error("API: Error parsing token:", e);
+      console.error("API: Error processing token:", e);
     }
   }
   
   return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {})
+    'Content-Type': 'application/json'
   };
 };
 
@@ -93,11 +121,20 @@ export const api = {
     refreshToken: async (): Promise<boolean> => {
       try {
         console.log("Attempting to refresh token");
-        const token = getStorage().getItem('token');
+        
+        // Try to get token from both localStorage and sessionStorage
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
         
         if (!token) {
           console.log("No token to refresh");
           return false;
+        }
+        
+        // Clean the token if needed (remove quotes)
+        let cleanToken = token;
+        if (token.startsWith('"') && token.endsWith('"')) {
+          cleanToken = token.slice(1, -1);
+          console.log("Removed quotes from token for refresh");
         }
         
         console.log("Token found, sending refresh request");
@@ -105,7 +142,7 @@ export const api = {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${cleanToken}`
           }
         });
         
@@ -123,12 +160,15 @@ export const api = {
         
         if (data.token) {
           console.log("Token refreshed successfully");
-          const storage = getStorage();
-          storage.setItem('token', data.token);
+          
+          // Store the token in both localStorage and sessionStorage to ensure it's available
+          localStorage.setItem('token', data.token);
+          sessionStorage.setItem('token', data.token);
           
           // Also update user data if available
           if (data.user) {
-            storage.setItem('user', JSON.stringify(data.user));
+            localStorage.setItem('user', JSON.stringify(data.user));
+            sessionStorage.setItem('user', JSON.stringify(data.user));
           }
           
           return true;
