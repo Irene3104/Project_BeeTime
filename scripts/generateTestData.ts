@@ -17,7 +17,7 @@ async function main() {
 
   // 2. 사용자 정보 가져오기
   const user = await prisma.user.findUnique({
-    where: { email: 'tsjyono@gmail.com' },
+    where: { email: 'a@gmail.com' },
     include: { location: true }
   });
 
@@ -29,8 +29,8 @@ async function main() {
   console.log(`Generating test data for user: ${user.name} (${user.email})`);
 
   // 3. 2월 1일부터 13일까지의 근무 기록 생성
-  const startDate = new Date('2025-02-10');
-  const endDate = new Date('2025-02-27');
+  const startDate = new Date('2025-02-01');
+  const endDate = new Date('2025-02-08');
   
   // 날짜 범위 생성
   const dates = [];

@@ -219,11 +219,11 @@ router.delete('/employees/:id', authenticate, isAdmin, async (req, res) => {
       });
       console.log('LocationUser 삭제 완료');
 
-      // 5. WorkSummary 삭제
-      await tx.workSummary.deleteMany({
-        where: { userId: id }
-      });
-      console.log('WorkSummary 삭제 완료');
+      // // 5. WorkSummary 삭제
+      // await tx.workSummary.deleteMany({
+      //   where: { userId: id }
+      // });
+      // console.log('WorkSummary 삭제 완료');
 
       // 6. 마지막으로 User 삭제
       await tx.user.delete({
