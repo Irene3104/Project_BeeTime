@@ -211,26 +211,61 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
       
-      // Calculate break minutes
-      const breakStart = new Date(`${dateString}T${existingTimeRecord.breakStartTime}:00`);
-      const breakEnd = new Date(`${dateString}T${timeString}:00`);
-      const breakMinutes = Math.round((breakEnd.getTime() - breakStart.getTime()) / 60000);
-      
-      // Update the time record with break end time
-      const updatedTimeRecord = await prisma.timeRecord.update({
-        where: { id: existingTimeRecord.id },
-        data: { 
-          breakEndTime: timeString,
-          breakMinutes: breakMinutes,
-          status: 'active'
+      try {
+        // Calculate break minutes
+        const breakStart = new Date(`${dateString}T${existingTimeRecord.breakStartTime}:00`);
+        const breakEnd = new Date(`${dateString}T${timeString}:00`);
+        
+        // Ensure both dates are valid
+        if (isNaN(breakStart.getTime()) || isNaN(breakEnd.getTime())) {
+          console.error('Invalid date calculation:', {
+            dateString,
+            breakStartTime: existingTimeRecord.breakStartTime,
+            timeString
+          });
+          return res.status(400).json({
+            error: 'Invalid time format',
+            details: 'Could not calculate break duration due to invalid time format'
+          });
         }
-      });
-      
-      return res.json({
-        success: true,
-        message: 'Break ended successfully',
-        data: updatedTimeRecord
-      });
+        
+        // Handle case where break ends on the next day
+        let breakMinutes = Math.round((breakEnd.getTime() - breakStart.getTime()) / 60000);
+        
+        // If breakMinutes is negative, assume break ended on the next day
+        if (breakMinutes < 0) {
+          const nextDayBreakEnd = new Date(`${dateString}T${timeString}:00`);
+          nextDayBreakEnd.setDate(nextDayBreakEnd.getDate() + 1);
+          breakMinutes = Math.round((nextDayBreakEnd.getTime() - breakStart.getTime()) / 60000);
+        }
+        
+        // Ensure breakMinutes is at least 1 minute
+        breakMinutes = Math.max(1, breakMinutes);
+        
+        console.log('Calculated break minutes:', breakMinutes);
+        
+        // Update the time record with break end time
+        const updatedTimeRecord = await prisma.timeRecord.update({
+          where: { id: existingTimeRecord.id },
+          data: { 
+            breakEndTime: timeString,
+            breakMinutes: breakMinutes,
+            status: 'active'
+          }
+        });
+        
+        return res.json({
+          success: true,
+          message: 'Break ended successfully',
+          data: updatedTimeRecord
+        });
+      } catch (error) {
+        console.error('Error processing breakEnd:', error);
+        return res.status(500).json({
+          error: 'Failed to process time entry',
+          details: 'An error occurred while calculating break duration'
+        });
+      }
     }
 
     // For clockOut
