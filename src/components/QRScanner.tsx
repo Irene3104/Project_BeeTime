@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { API_URL } from '../config/constants';
 import jsQR from 'jsqr';
+import { api } from '../lib/api';
 
 // Interface for offline time entries
 interface OfflineTimeEntry {
@@ -76,30 +77,21 @@ const syncOfflineEntries = async () => {
     
     for (const entry of unsyncedEntries) {
       try {
-        const response = await fetch(`${API_URL}/time-entries/verify-location`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            placeId: entry.placeId,
-            latitude: entry.location.latitude,
-            longitude: entry.location.longitude,
-            accuracy: entry.location.accuracy || 0,
-            type: entry.type,
-            timestamp: entry.timestamp,
-            isOfflineSync: true
-          })
+        // Use the API client to sync the entry
+        await api.timeEntries.verifyLocation({
+          placeId: entry.placeId,
+          latitude: entry.location.latitude,
+          longitude: entry.location.longitude,
+          accuracy: entry.location.accuracy || 0,
+          type: entry.type,
+          timestamp: entry.timestamp
         });
         
-        if (response.ok) {
-          // Mark as synced
-          const index = updatedEntries.findIndex(e => e.id === entry.id);
-          if (index !== -1) {
-            updatedEntries[index].synced = true;
-            syncedCount++;
-          }
+        // Mark as synced
+        const index = updatedEntries.findIndex(e => e.id === entry.id);
+        if (index !== -1) {
+          updatedEntries[index].synced = true;
+          syncedCount++;
         }
       } catch (error) {
         console.error(`Failed to sync entry ${entry.id}:`, error);
@@ -128,11 +120,12 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [scanSuccess, setScanSuccess] = useState<{ message: string, data: any } | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [debugMode, setDebugMode] = useState(import.meta.env.PROD); // Auto-enable in production
+  const [debugMode, setDebugMode] = useState(import.meta.env.DEV); // Only auto-enable in development
   const [skipLocationCheck, setSkipLocationCheck] = useState(import.meta.env.PROD); // Auto-enable in production
   const [serverAvailable, setServerAvailable] = useState<boolean | null>(null);
   const [offlineMode, setOfflineMode] = useState(false);
   const [pendingOfflineEntries, setPendingOfflineEntries] = useState(0);
+  const [forcedDebugMode, setForcedDebugMode] = useState(false); // Track if debug mode was forced due to server unavailability
   
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -191,34 +184,41 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     }
     
     try {
-      // Try both the /health endpoint and the root endpoint
       console.log("Checking server availability at:", API_URL);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      // First try the /health endpoint
-      let response = await fetch(`${API_URL}/health`, {
-        method: 'GET',
-        signal: controller.signal
-      }).catch(error => {
-        console.log("Health endpoint check failed, trying root endpoint");
-        return { ok: false };
-      });
+      // Try multiple endpoints to check server availability
+      const endpoints = [
+        '/health',
+        '/api/health',
+        '/'
+      ];
       
-      // If health endpoint fails, try the root endpoint
-      if (!response.ok) {
-        response = await fetch(API_URL, {
-          method: 'GET',
-          signal: controller.signal
-        }).catch(error => {
-          console.error("Root endpoint check failed:", error);
-          return { ok: false };
-        });
+      let isAvailable = false;
+      
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying endpoint: ${API_URL}${endpoint}`);
+          const response = await fetch(`${API_URL}${endpoint}`, {
+            method: 'GET',
+            signal: controller.signal
+          });
+          
+          if (response.ok) {
+            console.log(`Server available at ${endpoint}`);
+            isAvailable = true;
+            break;
+          } else {
+            console.log(`Endpoint ${endpoint} returned status: ${response.status}`);
+          }
+        } catch (error) {
+          console.log(`Error checking endpoint ${endpoint}:`, error instanceof Error ? error.message : error);
+        }
       }
       
       clearTimeout(timeoutId);
       
-      const isAvailable = response.ok;
       console.log("Server available:", isAvailable);
       setServerAvailable(isAvailable);
       setOfflineMode(!isAvailable);
@@ -396,14 +396,16 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     try {
       const now = new Date();
       
-      // Debug mode - bypass API call completely
-      if (debugMode) {
-        console.log("Debug mode enabled, bypassing normal processing");
+      // Only use debug mode if explicitly enabled or if server is unavailable in production
+      const shouldUseDebugMode = debugMode || (import.meta.env.PROD && !serverAvailable);
+      
+      if (shouldUseDebugMode) {
+        console.log("Debug mode active:", debugMode ? "manually enabled" : "forced due to server unavailability");
         console.log("QR Data:", qrData);
         console.log("Location Data:", locationData);
         
         // If we're in offline mode, save the entry to localStorage
-        if ((offlineMode || !serverAvailable) && !debugMode) {
+        if (offlineMode || !serverAvailable) {
           console.log("Offline mode active, saving entry to local storage");
           
           // Get user ID from token if available
@@ -503,41 +505,15 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       const apiData = {
         placeId: qrData,
         type,
-        location: {
-          latitude: locationData.latitude,
-          longitude: locationData.longitude,
-          accuracy: locationData.accuracy
-        }
+        timestamp: now.toISOString(),
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        accuracy: locationData.accuracy || 0
       };
 
       try {
-        // Make the API call
-        const response = await fetch(`${API_URL}/time-entries`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token') || sessionStorage.getItem('token') || ''}`
-          },
-          body: JSON.stringify(apiData),
-        });
-
-        if (!response.ok) {
-          // If server returns an error, try to save offline
-          if (response.status >= 500 || response.status === 0) {
-            console.log("Server error, attempting to save offline");
-            setServerAvailable(false);
-            setOfflineMode(true);
-            
-            // Recursively call this function again - it will now use the offline path
-            return processWithLocation(qrData, locationData);
-          }
-          
-          // Handle other errors
-          const errorData = await response.json().catch(() => ({ message: 'Unknown error occurred' }));
-          throw new Error(errorData.message || `Error: ${response.status}`);
-        }
-
-        const data = await response.json();
+        // Make the API call using the api client
+        const data = await api.timeEntries.verifyLocation(apiData);
         
         // Set success state with message
         const actionMessages = {
@@ -548,7 +524,7 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         };
         
         const successMessage = actionMessages[type] || 'Scan successful!';
-        setScanSuccess({ message: successMessage, data });
+        setScanSuccess({ message: successMessage, data: data.data || data });
         
         // Since we successfully made an API call, check if we have any offline entries to sync
         if (pendingOfflineEntries > 0) {
@@ -787,21 +763,18 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   useEffect(() => {
     getCameras();
     
-    // Auto-enable debug mode in production
-    if (import.meta.env.PROD) {
-      setDebugMode(true);
-      setSkipLocationCheck(true);
-      console.log("Production environment detected. Debug mode and skip location check enabled by default.");
-      
-      // Check server availability
-      checkServerAvailability().then(isAvailable => {
-        if (!isAvailable) {
-          console.log("Server is not available. Forcing debug mode.");
-          setDebugMode(true);
-          setSkipLocationCheck(true);
-        }
-      });
-    }
+    // Check server availability first
+    checkServerAvailability().then(isAvailable => {
+      if (!isAvailable && import.meta.env.PROD) {
+        console.log("Server is not available in production. Forcing debug mode.");
+        setDebugMode(true);
+        setForcedDebugMode(true);
+        setSkipLocationCheck(true);
+      } else if (import.meta.env.DEV) {
+        // In development, enable debug mode by default
+        setDebugMode(true);
+      }
+    });
     
     return () => {
       stopScanning();
@@ -886,8 +859,8 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
             
             {/* Debug mode indicator */}
             {debugMode && (
-              <div className="debug-mode-indicator bg-purple-100 text-purple-800 px-2 py-1 rounded">
-                🐞 Debug Mode
+              <div className={`debug-mode-indicator ${forcedDebugMode ? 'bg-orange-100 text-orange-800' : 'bg-purple-100 text-purple-800'} px-2 py-1 rounded`}>
+                🐞 Debug Mode {forcedDebugMode ? '(Forced)' : ''}
               </div>
             )}
           </div>

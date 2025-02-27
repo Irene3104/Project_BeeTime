@@ -76,5 +76,72 @@ export const api = {
       }
       return response.json();
     },
+  },
+  
+  timeEntries: {
+    getAll: async () => {
+      const response = await fetch(`${API_URL}/time-entries`, {
+        headers: getAuthHeader(),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Failed to fetch time entries' }));
+        throw new Error(error.message || `Error: ${response.status}`);
+      }
+      
+      return response.json();
+    },
+    
+    create: async (data: any) => {
+      const response = await fetch(`${API_URL}/time-entries`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Failed to create time entry' }));
+        throw new Error(error.message || `Error: ${response.status}`);
+      }
+      
+      return response.json();
+    },
+    
+    update: async (id: string, data: any) => {
+      const response = await fetch(`${API_URL}/time-entries/${id}`, {
+        method: 'PATCH',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Failed to update time entry' }));
+        throw new Error(error.message || `Error: ${response.status}`);
+      }
+      
+      return response.json();
+    },
+    
+    verifyLocation: async (data: {
+      placeId: string;
+      latitude: number;
+      longitude: number;
+      accuracy?: number;
+      type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut';
+      timestamp: string;
+    }) => {
+      const response = await fetch(`${API_URL}/time-entries/verify-location`, {
+        method: 'POST',
+        headers: getAuthHeader(),
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Failed to verify location' }));
+        throw new Error(error.message || `Error: ${response.status}`);
+      }
+      
+      return response.json();
+    }
   }
 };
