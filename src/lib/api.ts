@@ -13,8 +13,27 @@ const getAuthHeader = (): HeadersInit => {
   const token = getStorage().getItem('token');
   console.log("API: Auth token available:", !!token);
   if (token) {
-    console.log("API: Token first 20 chars:", token.substring(0, 20) + "...");
+    // Log token details for debugging
+    try {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      
+      const payload = JSON.parse(jsonPayload);
+      const expiryDate = new Date(payload.exp * 1000);
+      const now = new Date();
+      const isExpired = expiryDate < now;
+      
+      console.log("API: Token first 20 chars:", token.substring(0, 20) + "...");
+      console.log("API: Token expiry:", expiryDate.toISOString());
+      console.log("API: Token expired:", isExpired);
+    } catch (e) {
+      console.error("API: Error parsing token:", e);
+    }
   }
+  
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -81,6 +100,7 @@ export const api = {
           return false;
         }
         
+        console.log("Token found, sending refresh request");
         const response = await fetch(`${API_URL}/auth/refresh-token`, {
           method: 'POST',
           headers: {
@@ -89,20 +109,32 @@ export const api = {
           }
         });
         
+        console.log("Refresh token response status:", response.status);
+        
         if (!response.ok) {
           console.error("Token refresh failed:", response.status);
+          const errorText = await response.text();
+          console.error("Token refresh error response:", errorText);
           return false;
         }
         
         const data = await response.json();
+        console.log("Token refresh response data received");
         
         if (data.token) {
           console.log("Token refreshed successfully");
           const storage = getStorage();
           storage.setItem('token', data.token);
+          
+          // Also update user data if available
+          if (data.user) {
+            storage.setItem('user', JSON.stringify(data.user));
+          }
+          
           return true;
         }
         
+        console.log("No token in refresh response");
         return false;
       } catch (error) {
         console.error("Error refreshing token:", error);
@@ -174,10 +206,13 @@ export const api = {
       timestamp: string;
     }) => {
       console.log("Calling verifyLocation API with data:", data);
+      
+      // Get fresh headers with the latest token
       const headers = getAuthHeader();
       console.log("Request headers:", headers);
       
       try {
+        // Attempt the API call
         const response = await fetch(`${API_URL}/api/time-entries/verify-location`, {
           method: 'POST',
           headers: headers,
@@ -186,6 +221,44 @@ export const api = {
         
         console.log("API response status:", response.status);
         
+        // Handle authentication errors by attempting to refresh the token
+        if (response.status === 401) {
+          console.log("Authentication failed, attempting to refresh token");
+          const refreshSuccess = await api.auth.refreshToken();
+          
+          if (refreshSuccess) {
+            console.log("Token refreshed, retrying API call with new token");
+            // Get fresh headers with the new token
+            const newHeaders = getAuthHeader();
+            
+            // Retry the API call with the new token
+            const retryResponse = await fetch(`${API_URL}/api/time-entries/verify-location`, {
+              method: 'POST',
+              headers: newHeaders,
+              body: JSON.stringify(data),
+            });
+            
+            console.log("Retry API response status:", retryResponse.status);
+            
+            if (!retryResponse.ok) {
+              const errorText = await retryResponse.text();
+              console.error("API retry error response:", errorText);
+              try {
+                const error = JSON.parse(errorText);
+                throw new Error(error.message || error.error || `Error: ${retryResponse.status}`);
+              } catch (e) {
+                throw new Error(`Failed to verify location after token refresh: ${retryResponse.status} ${errorText}`);
+              }
+            }
+            
+            return retryResponse.json();
+          } else {
+            console.error("Token refresh failed, cannot retry API call");
+            throw new Error("Authentication failed and token refresh was unsuccessful");
+          }
+        }
+        
+        // Handle other errors
         if (!response.ok) {
           const errorText = await response.text();
           console.error("API error response:", errorText);
@@ -569,6 +642,232 @@ export const diagnostics = {
     console.log('Token cleared. You will need to log in again.');
     
     return { success: true };
+  },
+  
+  async clearTodaysTimeRecord() {
+    try {
+      console.log('Attempting to clear today\'s time record...');
+      const headers = await getAuthHeader();
+      
+      const response = await fetch(`${API_URL}/api/time-entries/clear-today`, {
+        method: 'POST',
+        headers
+      });
+      
+      console.log('Clear today\'s record response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error('Failed to clear today\'s record:', errorJson);
+          return { success: false, error: errorJson };
+        } catch (e) {
+          console.error('Failed to clear today\'s record with non-JSON response:', errorText);
+          return { success: false, error: errorText };
+        }
+      }
+      
+      const data = await response.json();
+      console.log('Successfully cleared today\'s time record:', data);
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error clearing today\'s time record:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+  
+  async testBreakStart(placeId = 'ChIJN1t_tDeuEmsRUsoyG83frY4') {
+    try {
+      console.log('Testing Break Start functionality...');
+      const headers = await getAuthHeader();
+      console.log('Auth headers:', headers);
+      
+      // Get current position if available
+      let position = null;
+      try {
+        position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 0
+          });
+        });
+        console.log('Current position:', position);
+      } catch (error) {
+        console.warn('Could not get current position:', error);
+      }
+      
+      // Prepare test data for Break Start
+      const testData = {
+        placeId,
+        latitude: position ? position.coords.latitude : -33.8688,
+        longitude: position ? position.coords.longitude : 151.2093,
+        accuracy: position ? position.coords.accuracy : 10,
+        type: 'breakStart' as const,
+        timestamp: new Date().toISOString()
+      };
+      
+      console.log('Test data for Break Start:', testData);
+      
+      // First try to refresh the token
+      console.log('Attempting to refresh token before Break Start test');
+      const refreshResult = await api.auth.refreshToken();
+      console.log('Token refresh result:', refreshResult);
+      
+      // Get fresh headers after token refresh
+      const freshHeaders = await getAuthHeader();
+      console.log('Fresh auth headers after token refresh:', freshHeaders);
+      
+      // Make the API call
+      const response = await fetch(`${API_URL}/api/time-entries/verify-location`, {
+        method: 'POST',
+        headers: freshHeaders,
+        body: JSON.stringify(testData)
+      });
+      
+      console.log('Break Start test response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error('Break Start test failed:', errorJson);
+          return { success: false, error: errorJson };
+        } catch (e) {
+          console.error('Break Start test failed with non-JSON response:', errorText);
+          return { success: false, error: errorText };
+        }
+      }
+      
+      const data = await response.json();
+      console.log('Break Start test successful:', data);
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error testing Break Start:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+  
+  async testJwtToken() {
+    try {
+      console.log('Testing JWT token...');
+      const token = getStorage().getItem('token');
+      
+      if (!token) {
+        console.log('No token available for JWT test');
+        return { success: false, error: 'No token available' };
+      }
+      
+      console.log('Token available, analyzing...');
+      
+      // Parse the token
+      try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        
+        const payload = JSON.parse(jsonPayload);
+        const expiryDate = new Date(payload.exp * 1000);
+        const now = new Date();
+        const isExpired = expiryDate < now;
+        const timeUntilExpiry = expiryDate.getTime() - now.getTime();
+        
+        console.log('JWT payload:', payload);
+        console.log('JWT expiry:', expiryDate.toISOString());
+        console.log('JWT expired:', isExpired);
+        console.log('Time until expiry:', Math.floor(timeUntilExpiry / 1000), 'seconds');
+        
+        // Test the token with the server
+        const response = await fetch(`${API_URL}/debug/validate-token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ token })
+        });
+        
+        console.log('Token validation response status:', response.status);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          try {
+            const errorJson = JSON.parse(errorText);
+            console.error('Token validation failed:', errorJson);
+            return { 
+              success: false, 
+              error: errorJson,
+              tokenInfo: {
+                payload,
+                expiryDate: expiryDate.toISOString(),
+                isExpired,
+                timeUntilExpiry: Math.floor(timeUntilExpiry / 1000)
+              }
+            };
+          } catch (e) {
+            console.error('Token validation failed with non-JSON response:', errorText);
+            return { 
+              success: false, 
+              error: errorText,
+              tokenInfo: {
+                payload,
+                expiryDate: expiryDate.toISOString(),
+                isExpired,
+                timeUntilExpiry: Math.floor(timeUntilExpiry / 1000)
+              }
+            };
+          }
+        }
+        
+        const data = await response.json();
+        console.log('Token validation successful:', data);
+        return { 
+          success: true, 
+          data,
+          tokenInfo: {
+            payload,
+            expiryDate: expiryDate.toISOString(),
+            isExpired,
+            timeUntilExpiry: Math.floor(timeUntilExpiry / 1000)
+          }
+        };
+      } catch (e) {
+        console.error('Error parsing token:', e);
+        return { success: false, error: 'Invalid token format' };
+      }
+    } catch (error) {
+      console.error('Error testing JWT token:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+};
+
+// Add global diagnostic functions for browser console testing
+export const setupGlobalDiagnostics = () => {
+  if (typeof window !== 'undefined') {
+    console.log('Setting up global diagnostic functions...');
+    
+    // ... existing code ...
+    
+    // Add testBreakStart function
+    (window as any).testBreakStart = async (placeId?: string) => {
+      console.log('Running Break Start test...');
+      const result = await diagnostics.testBreakStart(placeId);
+      console.log('Break Start test result:', result);
+      return result;
+    };
+    
+    console.log('Global diagnostic functions available:');
+    console.log('- window.testAuth() - Test authentication flow');
+    console.log('- window.testDateHandling() - Test date handling');
+    console.log('- window.testServerStatus() - Test server status');
+    console.log('- window.testTokenRefresh() - Test token refresh');
+    console.log('- window.testVerifyLocation() - Test the QR verification endpoint');
+    console.log('- window.testBreakStart() - Test the Break Start functionality');
+    console.log('- window.testDebugModel() - Test the debug model endpoint');
+    console.log('- window.testJwtToken() - Test JWT token validation');
   }
 };
 
@@ -599,6 +898,11 @@ if (typeof window !== 'undefined') {
       const refreshResult = await diagnostics.testTokenRefresh();
       console.log('Token refresh result:', refreshResult);
       
+      // Test Break Start functionality
+      console.log('\n--- Break Start Test ---');
+      const breakStartResult = await diagnostics.testBreakStart();
+      console.log('Break Start test result:', breakStartResult);
+      
       // Test date handling
       console.log('\n--- Date Handling Test ---');
       const dateResult = await diagnostics.testDateHandling();
@@ -608,6 +912,11 @@ if (typeof window !== 'undefined') {
       console.log('\n--- Debug Model Test ---');
       const modelResult = await diagnostics.testDebugModel();
       console.log('Debug model result:', modelResult);
+      
+      // Test JWT token
+      console.log('\n--- JWT Token Test ---');
+      const jwtResult = await diagnostics.testJwtToken();
+      console.log('JWT token test result:', jwtResult);
       
       // Add a separate function for testing verify location
       (window as any).testVerifyLocation = async (placeId?: string) => {
@@ -625,13 +934,24 @@ if (typeof window !== 'undefined') {
         return result;
       };
       
+      // Add a separate function for testing JWT token
+      (window as any).testJwtToken = async () => {
+        console.log('=== TESTING JWT TOKEN ===');
+        const result = await diagnostics.testJwtToken();
+        console.log('JWT token test result:', result);
+        return result;
+      };
+      
+      console.log('\n=== DIAGNOSTICS COMPLETE ===');
       return {
         tokenStorage,
         serverStatus,
         authResult,
         refreshResult,
+        breakStartResult,
         dateResult,
-        modelResult
+        modelResult,
+        jwtResult
       };
     } catch (error) {
       console.error('Error running diagnostics:', error);
@@ -647,7 +967,22 @@ if (typeof window !== 'undefined') {
     return result;
   };
   
+  // Add a utility to clear today's time record
+  (window as any).clearTodaysTimeRecord = async () => {
+    console.log('=== CLEARING TODAY\'S TIME RECORD ===');
+    const result = await diagnostics.clearTodaysTimeRecord();
+    if (result.success) {
+      console.log('Time record cleared. You can now test the QR scanner again.');
+    } else {
+      console.error('Failed to clear time record:', result.error);
+    }
+    return result;
+  };
+  
   console.log('Diagnostics available! Run window.runDiagnostics() in console to test API connectivity');
   console.log('You can also run window.testVerifyLocation() to test the QR verification endpoint');
+  console.log('To test the Break Start functionality, run window.testBreakStart()');
+  console.log('To test your JWT token, run window.testJwtToken()');
   console.log('To clear your token and force re-login, run window.clearToken()');
+  console.log('To clear today\'s time record for testing, run window.clearTodaysTimeRecord()');
 }

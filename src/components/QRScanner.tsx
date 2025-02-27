@@ -630,12 +630,22 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
             if (isExpired) {
               console.log("Token is expired, attempting to refresh");
               tokenValid = await api.auth.refreshToken();
+              
+              // Log the result of token refresh attempt
+              console.log("Token refresh result:", tokenValid ? "Success" : "Failed");
+              
+              // If token refresh was successful, get the new token
+              if (tokenValid) {
+                const newToken = localStorage.getItem('token') || sessionStorage.getItem('token');
+                console.log("New token available:", !!newToken);
+              }
             }
           }
         } catch (e) {
           console.error("Error checking token expiration:", e);
           // Try to refresh anyway
           tokenValid = await api.auth.refreshToken();
+          console.log("Token refresh after error:", tokenValid ? "Success" : "Failed");
         }
       }
       

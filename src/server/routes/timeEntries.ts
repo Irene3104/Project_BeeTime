@@ -296,7 +296,7 @@ async function getCurrentTimeRecord(userId: string) {
     where: {
       userId,
       date: dateString,
-      clockOutTime: { equals: null }
+      clockOutTime: null
     }
   });
 }
@@ -345,6 +345,49 @@ router.get('/test-date', async (req, res) => {
     console.error('Error in test-date endpoint:', error);
     res.status(500).json({
       error: 'Test failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Endpoint to clear today's time record (for testing purposes)
+router.post('/clear-today', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    const userId = req.user.id;
+    const today = new Date();
+    const dateString = formatInTimeZone(today, TIMEZONE, 'yyyy-MM-dd');
+    
+    console.log(`Attempting to clear time record for user ${userId} on date ${dateString}`);
+    
+    // Find and delete today's time record
+    const deletedRecord = await prisma.timeRecord.deleteMany({
+      where: {
+        userId,
+        date: dateString
+      }
+    });
+    
+    console.log('Delete operation result:', deletedRecord);
+    
+    return res.json({
+      success: true,
+      message: `Cleared ${deletedRecord.count} time records for today`,
+      count: deletedRecord.count
+    });
+  } catch (error) {
+    console.error('Error clearing today\'s time record:', error);
+    
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      console.error('Prisma error code:', error.code);
+      console.error('Prisma error message:', error.message);
+    }
+    
+    return res.status(500).json({
+      error: 'Failed to clear time record',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
