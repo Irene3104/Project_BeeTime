@@ -12,10 +12,10 @@ const TIMEZONE = 'Australia/Sydney';
 
 const timeEntrySchema = z.object({
   date: z.string(),
-  clockIn: z.string(),
-  breakStart: z.string().optional(),
-  breakEnd: z.string().optional(),
-  clockOut: z.string().optional(),
+  clockInTime: z.string(),
+  breakStartTime: z.string().optional(),
+  breakEndTime: z.string().optional(),
+  clockOutTime: z.string().optional(),
 });
 
 const locationVerificationSchema = z.object({
@@ -39,7 +39,7 @@ router.post('/', validateRequest(timeEntrySchema), async (req, res) => {
       userId: req.user.id,
       locationId: req.user.locationId,
       date: fromNSWTime(nswTime),
-      clockIn: fromNSWTime(nswTime),
+      clockInTime: fromNSWTime(nswTime),
     }
   });
   
@@ -60,8 +60,8 @@ router.get('/', async (req, res) => {
   const formattedEntries = timeEntries.map(entry => ({
     ...entry,
     date: toNSWTime(entry.date),
-    clockIn: toNSWTime(entry.clockIn),
-    clockOut: entry.clockOut ? toNSWTime(entry.clockOut) : null,
+    clockInTime: toNSWTime(entry.clockInTime),
+    clockOutTime: entry.clockOutTime ? toNSWTime(entry.clockOutTime) : null,
     breaks: entry.breaks.map(breakRecord => ({
       ...breakRecord,
       startTime: toNSWTime(breakRecord.startTime),
@@ -99,21 +99,17 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     console.log('Sydney time:', sydneyTime);
     console.log('Request type:', type);
 
-    // Get start of day in Sydney time
-    const sydneyStartOfDay = new Date(sydneyTime);
-    sydneyStartOfDay.setHours(0, 0, 0, 0);
-    
-    console.log('Start of day (Sydney):', sydneyStartOfDay);
+    // Format date as string in YYYY-MM-DD format for the database
+    const dateString = formatInTimeZone(sydneyTime, TIMEZONE, 'yyyy-MM-dd');
+    const timeString = formatInTimeZone(sydneyTime, TIMEZONE, 'HH:mm');
+    console.log('Date string for query:', dateString);
+    console.log('Time string for storage:', timeString);
 
     // First check if there's an existing time record for today
     const existingTimeRecord = await prisma.timeRecord.findFirst({
       where: {
         userId,
-        date: {
-          // Use proper date comparison for Prisma
-          gte: sydneyStartOfDay,
-          lt: new Date(sydneyStartOfDay.getTime() + 24 * 60 * 60 * 1000) // Add 24 hours
-        }
+        date: dateString // Use string format instead of DateTime object
       }
     });
 
@@ -136,17 +132,14 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
           details: 'The specified location does not exist'
         });
       }
-
-      // Convert timestamp to UTC for storage
-      const utcTimestamp = new Date(sydneyTime);
       
       // Create new time record if none exists
       const timeRecord = await prisma.timeRecord.create({
         data: {
           userId,
           locationId: location.id,
-          date: sydneyStartOfDay,
-          clockIn: utcTimestamp,
+          date: dateString,
+          clockInTime: timeString,
           status: 'active'
         }
       });
@@ -154,15 +147,11 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       return res.json({ 
         success: true, 
         message: 'Successfully clocked in',
-        data: {
-          ...timeRecord,
-          clockIn: toNSWTime(timeRecord.clockIn), // Convert back to Sydney time for response
-          date: toNSWTime(timeRecord.date)
-        }
+        data: timeRecord
       });
     }
 
-    // For BREAK_START, similar conversion needed
+    // For BREAK_START
     if (type === 'breakStart') {
       // Check if there's an existing time record
       if (!existingTimeRecord) {
@@ -172,22 +161,18 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
 
-      const utcTimestamp = new Date(sydneyTime);
-      
-      const breakRecord = await prisma.breakRecord.create({
-        data: {
-          timeRecordId: existingTimeRecord.id,
-          startTime: utcTimestamp
+      // Update the time record with break start time
+      const updatedRecord = await prisma.timeRecord.update({
+        where: { id: existingTimeRecord.id },
+        data: { 
+          breakStartTime: timeString
         }
       });
 
       return res.json({
         success: true,
         message: 'Break started successfully',
-        data: {
-          ...breakRecord,
-          startTime: toNSWTime(breakRecord.startTime)
-        }
+        data: updatedRecord
       });
     }
 
@@ -201,40 +186,32 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
 
-      // Find the most recent break that hasn't ended yet
-      const activeBreak = await prisma.breakRecord.findFirst({
-        where: {
-          timeRecordId: existingTimeRecord.id,
-          endTime: null
-        },
-        orderBy: {
-          startTime: 'desc'
-        }
-      });
-
-      if (!activeBreak) {
+      // Check if break has started
+      if (!existingTimeRecord.breakStartTime) {
         return res.status(400).json({
           error: 'No active break',
           details: 'You need to start a break before ending it'
         });
       }
 
-      const utcTimestamp = new Date(sydneyTime);
+      // Calculate break minutes
+      const breakStart = new Date(`${dateString}T${existingTimeRecord.breakStartTime}:00`);
+      const breakEnd = new Date(`${dateString}T${timeString}:00`);
+      const breakMinutes = Math.round((breakEnd.getTime() - breakStart.getTime()) / 60000);
       
-      // Update the break record with end time
-      const updatedBreak = await prisma.breakRecord.update({
-        where: { id: activeBreak.id },
-        data: { endTime: utcTimestamp }
+      // Update the time record with break end time
+      const updatedRecord = await prisma.timeRecord.update({
+        where: { id: existingTimeRecord.id },
+        data: { 
+          breakEndTime: timeString,
+          breakMinutes: breakMinutes
+        }
       });
 
       return res.json({
         success: true,
         message: 'Break ended successfully',
-        data: {
-          ...updatedBreak,
-          startTime: toNSWTime(updatedBreak.startTime),
-          endTime: toNSWTime(updatedBreak.endTime!)
-        }
+        data: updatedRecord
       });
     }
 
@@ -248,28 +225,32 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
 
-      // Check if there are any active breaks
-      const activeBreak = await prisma.breakRecord.findFirst({
-        where: {
-          timeRecordId: existingTimeRecord.id,
-          endTime: null
-        }
-      });
-
-      if (activeBreak) {
+      // Check if break is still active
+      if (existingTimeRecord.breakStartTime && !existingTimeRecord.breakEndTime) {
         return res.status(400).json({
           error: 'Active break',
           details: 'You need to end your break before clocking out'
         });
       }
-
-      const utcTimestamp = new Date(sydneyTime);
+      
+      // Calculate working hours
+      const clockIn = new Date(`${dateString}T${existingTimeRecord.clockInTime}:00`);
+      const clockOut = new Date(`${dateString}T${timeString}:00`);
+      let workingMinutes = (clockOut.getTime() - clockIn.getTime()) / 60000;
+      
+      // Subtract break time if there was a break
+      if (existingTimeRecord.breakMinutes) {
+        workingMinutes -= existingTimeRecord.breakMinutes;
+      }
+      
+      const workingHours = Math.round(workingMinutes / 60 * 10) / 10; // Round to 1 decimal place
       
       // Update the time record with clock out time
       const updatedTimeRecord = await prisma.timeRecord.update({
         where: { id: existingTimeRecord.id },
         data: { 
-          clockOut: utcTimestamp,
+          clockOutTime: timeString,
+          workingHours: workingHours,
           status: 'completed'
         }
       });
@@ -277,12 +258,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       return res.json({
         success: true,
         message: 'Clocked out successfully',
-        data: {
-          ...updatedTimeRecord,
-          clockIn: toNSWTime(updatedTimeRecord.clockIn),
-          clockOut: toNSWTime(updatedTimeRecord.clockOut!),
-          date: toNSWTime(updatedTimeRecord.date)
-        }
+        data: updatedTimeRecord
       });
     }
 
@@ -314,19 +290,13 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
 // Helper function to get current time record
 async function getCurrentTimeRecord(userId: string) {
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dateString = formatInTimeZone(today, TIMEZONE, 'yyyy-MM-dd');
   
   return await prisma.timeRecord.findFirst({
     where: {
       userId,
-      date: { 
-        gte: today,
-        lt: tomorrow
-      },
-      clockOut: { equals: null }
+      date: dateString,
+      clockOutTime: { equals: null }
     }
   });
 }
@@ -352,20 +322,12 @@ router.get('/test-date', async (req, res) => {
   try {
     const now = new Date();
     const sydneyTime = formatInTimeZone(now, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
-    
-    const sydneyDate = new Date(sydneyTime);
-    sydneyDate.setHours(0, 0, 0, 0);
-    
-    const tomorrow = new Date(sydneyDate);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dateString = formatInTimeZone(now, TIMEZONE, "yyyy-MM-dd");
     
     // Test query to check date handling
     const testQuery = await prisma.timeRecord.findMany({
       where: {
-        date: {
-          gte: sydneyDate,
-          lt: tomorrow
-        }
+        date: dateString
       },
       take: 5
     });
@@ -375,8 +337,7 @@ router.get('/test-date', async (req, res) => {
         utc: now.toISOString(),
         sydney: sydneyTime
       },
-      sydneyDate: sydneyDate.toISOString(),
-      tomorrow: tomorrow.toISOString(),
+      dateString,
       testQueryResults: testQuery.length,
       testQuerySample: testQuery
     });
@@ -384,6 +345,46 @@ router.get('/test-date', async (req, res) => {
     console.error('Error in test-date endpoint:', error);
     res.status(500).json({
       error: 'Test failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Diagnostic endpoint to check TimeRecord model structure
+router.get('/debug-model', async (req, res) => {
+  try {
+    // Get a sample record
+    const sampleRecord = await prisma.timeRecord.findFirst();
+    
+    // Get the Prisma model metadata
+    const modelInfo = {
+      modelName: 'TimeRecord',
+      fields: Object.keys(prisma.timeRecord.fields),
+      sample: sampleRecord ? {
+        id: sampleRecord.id,
+        date: sampleRecord.date,
+        userId: sampleRecord.userId,
+        status: sampleRecord.status,
+        fieldTypes: {
+          date: typeof sampleRecord.date,
+          clockInTime: typeof sampleRecord.clockInTime,
+          clockOutTime: typeof sampleRecord.clockOutTime,
+          breakStartTime: typeof sampleRecord.breakStartTime,
+          breakEndTime: typeof sampleRecord.breakEndTime,
+          workingHours: typeof sampleRecord.workingHours,
+          breakMinutes: typeof sampleRecord.breakMinutes
+        }
+      } : null
+    };
+    
+    res.json({
+      modelInfo,
+      prismaClientVersion: prisma._engineConfig.version
+    });
+  } catch (error) {
+    console.error('Error in debug-model endpoint:', error);
+    res.status(500).json({
+      error: 'Debug failed',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }

@@ -435,6 +435,40 @@ export const diagnostics = {
     }
   },
   
+  async testDebugModel() {
+    try {
+      console.log('Testing debug-model endpoint...');
+      const headers = await getAuthHeader();
+      console.log('Auth headers:', headers);
+      
+      const response = await fetch(`${API_URL}/api/time-entries/debug-model`, {
+        method: 'GET',
+        headers
+      });
+      
+      console.log('Debug model response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error('Debug model failed:', errorJson);
+          return { success: false, error: errorJson };
+        } catch (e) {
+          console.error('Debug model failed with non-JSON response:', errorText);
+          return { success: false, error: errorText };
+        }
+      }
+      
+      const data = await response.json();
+      console.log('Debug model successful:', data);
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error testing debug model:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  },
+  
   async testTokenStorage() {
     try {
       console.log('Testing token storage...');
@@ -570,6 +604,11 @@ if (typeof window !== 'undefined') {
       const dateResult = await diagnostics.testDateHandling();
       console.log('Date test result:', dateResult);
       
+      // Test debug model
+      console.log('\n--- Debug Model Test ---');
+      const modelResult = await diagnostics.testDebugModel();
+      console.log('Debug model result:', modelResult);
+      
       // Add a separate function for testing verify location
       (window as any).testVerifyLocation = async (placeId?: string) => {
         console.log('=== TESTING VERIFY LOCATION ===');
@@ -578,12 +617,21 @@ if (typeof window !== 'undefined') {
         return result;
       };
       
+      // Add a separate function for testing debug model
+      (window as any).testDebugModel = async () => {
+        console.log('=== TESTING DEBUG MODEL ===');
+        const result = await diagnostics.testDebugModel();
+        console.log('Debug model test result:', result);
+        return result;
+      };
+      
       return {
         tokenStorage,
         serverStatus,
         authResult,
         refreshResult,
-        dateResult
+        dateResult,
+        modelResult
       };
     } catch (error) {
       console.error('Error running diagnostics:', error);
