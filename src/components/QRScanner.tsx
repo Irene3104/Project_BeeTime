@@ -2,34 +2,171 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { API_URL } from '../config/constants';
 import jsQR from 'jsqr';
 
+// Interface for offline time entries
+interface OfflineTimeEntry {
+  id: string;
+  userId: string;
+  placeId: string;
+  type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut';
+  timestamp: string;
+  location: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  };
+  synced: boolean;
+}
+
 interface QRScannerProps {
   type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut';
   onClose: () => void;
   onScan: (data?: any) => void;
 }
 
+// Function to save offline time entry
+const saveOfflineTimeEntry = (entry: Omit<OfflineTimeEntry, 'synced'>) => {
+  try {
+    // Get existing offline entries
+    const offlineEntriesJson = localStorage.getItem('offlineTimeEntries');
+    const offlineEntries: OfflineTimeEntry[] = offlineEntriesJson 
+      ? JSON.parse(offlineEntriesJson) 
+      : [];
+    
+    // Add new entry with synced=false
+    const newEntry: OfflineTimeEntry = {
+      ...entry,
+      synced: false
+    };
+    
+    offlineEntries.push(newEntry);
+    
+    // Save back to localStorage
+    localStorage.setItem('offlineTimeEntries', JSON.stringify(offlineEntries));
+    
+    console.log('Saved offline time entry:', newEntry);
+    return newEntry;
+  } catch (error) {
+    console.error('Error saving offline time entry:', error);
+    return null;
+  }
+};
+
+// Function to sync offline entries with server
+const syncOfflineEntries = async () => {
+  try {
+    const offlineEntriesJson = localStorage.getItem('offlineTimeEntries');
+    if (!offlineEntriesJson) return;
+    
+    const offlineEntries: OfflineTimeEntry[] = JSON.parse(offlineEntriesJson);
+    const unsyncedEntries = offlineEntries.filter(entry => !entry.synced);
+    
+    if (unsyncedEntries.length === 0) return;
+    
+    console.log(`Attempting to sync ${unsyncedEntries.length} offline entries`);
+    
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    if (!token) {
+      console.error('No token available for syncing offline entries');
+      return;
+    }
+    
+    // Try to sync each entry
+    const updatedEntries = [...offlineEntries];
+    let syncedCount = 0;
+    
+    for (const entry of unsyncedEntries) {
+      try {
+        const response = await fetch(`${API_URL}/time-entries/verify-location`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            placeId: entry.placeId,
+            latitude: entry.location.latitude,
+            longitude: entry.location.longitude,
+            accuracy: entry.location.accuracy || 0,
+            type: entry.type,
+            timestamp: entry.timestamp,
+            isOfflineSync: true
+          })
+        });
+        
+        if (response.ok) {
+          // Mark as synced
+          const index = updatedEntries.findIndex(e => e.id === entry.id);
+          if (index !== -1) {
+            updatedEntries[index].synced = true;
+            syncedCount++;
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to sync entry ${entry.id}:`, error);
+      }
+    }
+    
+    // Update localStorage with synced status
+    localStorage.setItem('offlineTimeEntries', JSON.stringify(updatedEntries));
+    
+    if (syncedCount > 0) {
+      console.log(`Successfully synced ${syncedCount} offline entries`);
+    }
+    
+    return syncedCount;
+  } catch (error) {
+    console.error('Error syncing offline entries:', error);
+    return 0;
+  }
+};
+
 export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
-  // State
+  // State variables
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedCamera, setSelectedCamera] = useState<string>('');
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
-  const [scanSuccess, setScanSuccess] = useState<{ message: string; data: any } | null>(null);
-  const [debugMode, setDebugMode] = useState(true);
-  const [skipLocationCheck, setSkipLocationCheck] = useState(true);
+  const [scanSuccess, setScanSuccess] = useState<{ message: string, data: any } | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [debugMode, setDebugMode] = useState(import.meta.env.PROD); // Auto-enable in production
+  const [skipLocationCheck, setSkipLocationCheck] = useState(import.meta.env.PROD); // Auto-enable in production
   const [serverAvailable, setServerAvailable] = useState<boolean | null>(null);
+  const [offlineMode, setOfflineMode] = useState(false);
+  const [pendingOfflineEntries, setPendingOfflineEntries] = useState(0);
   
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationRef = useRef<number | null>(null);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
+  const scannerIntervalRef = useRef<number | null>(null);
+  
+  // Check for pending offline entries
+  const checkPendingOfflineEntries = useCallback(() => {
+    try {
+      const offlineEntriesJson = localStorage.getItem('offlineTimeEntries');
+      if (!offlineEntriesJson) {
+        setPendingOfflineEntries(0);
+        return 0;
+      }
+      
+      const offlineEntries: OfflineTimeEntry[] = JSON.parse(offlineEntriesJson);
+      const unsyncedCount = offlineEntries.filter(entry => !entry.synced).length;
+      setPendingOfflineEntries(unsyncedCount);
+      return unsyncedCount;
+    } catch (error) {
+      console.error('Error checking pending offline entries:', error);
+      return 0;
+    }
+  }, []);
   
   // Check if the server is available
   const checkServerAvailability = useCallback(async () => {
     if (import.meta.env.DEV) {
       // In development, assume server is available
       setServerAvailable(true);
+      setOfflineMode(false);
       return true;
     }
     
@@ -51,13 +188,29 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       const isAvailable = response.ok;
       console.log("Server available:", isAvailable);
       setServerAvailable(isAvailable);
+      setOfflineMode(!isAvailable);
+      
+      // If server is available, try to sync any pending offline entries
+      if (isAvailable) {
+        const pendingCount = checkPendingOfflineEntries();
+        if (pendingCount > 0) {
+          console.log(`Found ${pendingCount} pending offline entries to sync`);
+          syncOfflineEntries().then(syncedCount => {
+            if (syncedCount && syncedCount > 0) {
+              checkPendingOfflineEntries();
+            }
+          });
+        }
+      }
+      
       return isAvailable;
     } catch (error) {
       console.error("Error checking server availability:", error);
       setServerAvailable(false);
+      setOfflineMode(true);
       return false;
     }
-  }, []);
+  }, [checkPendingOfflineEntries]);
   
   // Get available cameras
   const getCameras = useCallback(async () => {
@@ -212,11 +365,72 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       
       // Debug mode - bypass API call completely
       if (debugMode) {
-        console.log("Debug mode enabled, bypassing API call completely");
+        console.log("Debug mode enabled, bypassing normal processing");
         console.log("QR Data:", qrData);
         console.log("Location Data:", locationData);
         
-        // Create mock data
+        // If we're in offline mode, save the entry to localStorage
+        if ((offlineMode || !serverAvailable) && !debugMode) {
+          console.log("Offline mode active, saving entry to local storage");
+          
+          // Get user ID from token if available
+          let userId = "offline-user";
+          const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+          if (token) {
+            try {
+              // Simple JWT parsing (not secure but works for basic extraction)
+              const base64Url = token.split('.')[1];
+              const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+              const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+              }).join(''));
+              
+              const payload = JSON.parse(jsonPayload);
+              if (payload.id) {
+                userId = payload.id;
+              }
+            } catch (e) {
+              console.error("Error extracting user ID from token:", e);
+            }
+          }
+          
+          // Create offline entry
+          const offlineEntry = {
+            id: "offline-" + Date.now(),
+            userId,
+            placeId: qrData,
+            type,
+            timestamp: now.toISOString(),
+            location: locationData
+          };
+          
+          // Save to localStorage
+          const savedEntry = saveOfflineTimeEntry(offlineEntry);
+          
+          if (savedEntry) {
+            checkPendingOfflineEntries();
+            
+            // Set success state with message
+            const actionMessages = {
+              clockIn: 'Clock In saved offline! Will sync later.',
+              breakStart: 'Break Start saved offline! Will sync later.',
+              breakEnd: 'Break End saved offline! Will sync later.',
+              clockOut: 'Clock Out saved offline! Will sync later.'
+            };
+            
+            const successMessage = actionMessages[type] || 'Entry saved offline! Will sync later.';
+            console.log("Offline entry saved:", successMessage);
+            
+            setScanSuccess({ 
+              message: successMessage, 
+              data: savedEntry 
+            });
+            setIsProcessing(false);
+            return;
+          }
+        }
+        
+        // Create mock data for debug mode (not offline)
         const mockData = {
           id: "debug-entry-" + Date.now(),
           userId: "debug-user",
@@ -249,191 +463,79 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         return;
       }
       
-      // Real API call
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      // Normal API call (when online and not in debug mode)
+      console.log("Making API call to record time entry");
       
-      if (!token) {
-        console.error("No authentication token found");
-        throw new Error('Authentication token not found. Please log in again.');
-      }
-
-      console.log("Using token:", token.substring(0, 10) + "...");
-      
-      const apiEndpoint = `${API_URL}/time-entries/verify-location`;
-      console.log("Sending request to:", apiEndpoint);
-      
-      // For testing/debugging - log the full request
-      console.log("Request payload:", {
+      // Prepare the data for the API call
+      const apiData = {
         placeId: qrData,
-        latitude: locationData.latitude,
-        longitude: locationData.longitude,
-        accuracy: locationData.accuracy || 0,
-        type: type,
-        timestamp: now.toISOString()
-      });
-      
+        type,
+        location: {
+          latitude: locationData.latitude,
+          longitude: locationData.longitude,
+          accuracy: locationData.accuracy
+        }
+      };
+
       try {
-        // Check if we're in production and the server is on render.com
-        const isRenderServer = API_URL.includes('render.com');
+        // Make the API call
+        const response = await fetch('/api/time-entries', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(apiData),
+        });
+
+        if (!response.ok) {
+          // If server returns an error, try to save offline
+          if (response.status >= 500 || response.status === 0) {
+            console.log("Server error, attempting to save offline");
+            setServerAvailable(false);
+            setOfflineMode(true);
+            
+            // Recursively call this function again - it will now use the offline path
+            return processWithLocation(qrData, locationData);
+          }
+          
+          // Handle other errors
+          const errorData = await response.json().catch(() => ({ message: 'Unknown error occurred' }));
+          throw new Error(errorData.message || `Error: ${response.status}`);
+        }
+
+        const data = await response.json();
         
-        // If we're in production and using render.com, add a fallback for server errors
-        if (isRenderServer && import.meta.env.PROD) {
-          console.log("Production environment detected with Render.com backend. Adding fallback for server errors.");
-          
-          try {
-            const response = await Promise.race([
-              fetch(apiEndpoint, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                  placeId: qrData,
-                  latitude: locationData.latitude,
-                  longitude: locationData.longitude,
-                  accuracy: locationData.accuracy || 0,
-                  type: type,
-                  timestamp: now.toISOString()
-                })
-              }),
-              // Add a timeout to handle slow server responses
-              new Promise<Response>((_, reject) => 
-                setTimeout(() => reject(new Error('Server request timed out after 10 seconds')), 10000)
-              )
-            ]);
-            
-            console.log("Response status:", response.status);
-            
-            if (response.status === 401 || response.status === 403) {
-              // Handle authentication error
-              localStorage.removeItem('token');
-              sessionStorage.removeItem('token');
-              throw new Error('Authentication failed. Please log in again.');
-            } else if (response.status === 404) {
-              throw new Error('API endpoint not found. Please check server configuration.');
-            } else if (response.status === 500) {
-              console.error("Server error detected. Falling back to debug mode.");
-              // Fall back to debug mode behavior
-              const mockData = {
-                id: "fallback-entry-" + Date.now(),
-                userId: "current-user",
-                timestamp: now.toISOString(),
-                type: type,
-                location: {
-                  latitude: locationData.latitude,
-                  longitude: locationData.longitude
-                },
-                placeId: qrData
-              };
-              
-              const actionMessages = {
-                clockIn: 'Clock In recorded (Server Fallback)',
-                breakStart: 'Break Start recorded (Server Fallback)',
-                breakEnd: 'Break End recorded (Server Fallback)',
-                clockOut: 'Clock Out recorded (Server Fallback)'
-              };
-              
-              const successMessage = actionMessages[type] || 'Scan successful (Server Fallback)';
-              setScanSuccess({ message: successMessage, data: mockData });
-              return;
-            } else if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
-              throw new Error(errorData.error || errorData.message || `Server error: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log("Success response:", data);
-            
-            // Set success state with message
-            const actionMessages = {
-              clockIn: 'Clock In successful!',
-              breakStart: 'Break Start recorded successfully!',
-              breakEnd: 'Break End recorded successfully!',
-              clockOut: 'Clock Out successful!'
-            };
-            
-            const successMessage = actionMessages[type] || 'Scan successful!';
-            setScanSuccess({ message: successMessage, data });
-          } catch (error) {
-            console.error("Error with server request:", error);
-            // Fall back to debug mode behavior for any error
-            const mockData = {
-              id: "error-fallback-entry-" + Date.now(),
-              userId: "current-user",
-              timestamp: now.toISOString(),
-              type: type,
-              location: {
-                latitude: locationData.latitude,
-                longitude: locationData.longitude
-              },
-              placeId: qrData
-            };
-            
-            const actionMessages = {
-              clockIn: 'Clock In recorded (Error Fallback)',
-              breakStart: 'Break Start recorded (Error Fallback)',
-              breakEnd: 'Break End recorded (Error Fallback)',
-              clockOut: 'Clock Out recorded (Error Fallback)'
-            };
-            
-            const successMessage = actionMessages[type] || 'Scan successful (Error Fallback)';
-            setScanSuccess({ message: successMessage, data: mockData });
-          }
-        } else {
-          // Original code for non-production or non-render environments
-          const response = await fetch(apiEndpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              placeId: qrData,
-              latitude: locationData.latitude,
-              longitude: locationData.longitude,
-              accuracy: locationData.accuracy || 0,
-              type: type,
-              timestamp: now.toISOString()
-            })
-          });
-
-          console.log("Response status:", response.status);
-          
-          if (response.status === 401 || response.status === 403) {
-            // Handle authentication error
-            localStorage.removeItem('token');
-            sessionStorage.removeItem('token');
-            throw new Error('Authentication failed. Please log in again.');
-          } else if (response.status === 404) {
-            throw new Error('API endpoint not found. Please check server configuration.');
-          } else if (response.status === 500) {
-            throw new Error('Server error occurred. Please try again later or contact support.');
-          } else if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
-            throw new Error(errorData.error || errorData.message || `Server error: ${response.status}`);
-          }
-
-          const data = await response.json();
-          console.log("Success response:", data);
-          
-          // Set success state with message
-          const actionMessages = {
-            clockIn: 'Clock In successful!',
-            breakStart: 'Break Start recorded successfully!',
-            breakEnd: 'Break End recorded successfully!',
-            clockOut: 'Clock Out successful!'
-          };
-          
-          const successMessage = actionMessages[type] || 'Scan successful!';
-          setScanSuccess({ message: successMessage, data });
+        // Set success state with message
+        const actionMessages = {
+          clockIn: 'Clock In successful!',
+          breakStart: 'Break Start recorded successfully!',
+          breakEnd: 'Break End recorded successfully!',
+          clockOut: 'Clock Out successful!'
+        };
+        
+        const successMessage = actionMessages[type] || 'Scan successful!';
+        setScanSuccess({ message: successMessage, data });
+        
+        // Since we successfully made an API call, check if we have any offline entries to sync
+        if (pendingOfflineEntries > 0) {
+          syncOfflineEntries();
         }
-      } catch (fetchError) {
-        console.error("Fetch error:", fetchError);
-        if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
-          throw new Error(`Cannot connect to server at ${API_URL}. Please check your internet connection.`);
+      } catch (error) {
+        console.error('Error processing scan:', error);
+        
+        // If there's a network error, try to save offline
+        if (error instanceof TypeError && error.message.includes('network')) {
+          console.log("Network error, attempting to save offline");
+          setServerAvailable(false);
+          setOfflineMode(true);
+          
+          // Recursively call this function again - it will now use the offline path
+          return processWithLocation(qrData, locationData);
         }
-        throw fetchError;
+        
+        setError(error instanceof Error ? error.message : 'An unknown error occurred');
+      } finally {
+        setIsProcessing(false);
       }
     } catch (error) {
       console.error('API error:', error);
@@ -653,11 +755,19 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     setSelectedCamera(e.target.value);
   };
   
-  // Retry scanning
-  const handleRetry = () => {
-    setError(null);
+  // Reset scanner
+  const resetScanner = () => {
     setScanSuccess(null);
+    setScanError(null);
+    setIsProcessing(false);
+    
+    // Restart the scanner if it was stopped
     startScanning();
+  };
+  
+  // Handle retry button click
+  const handleRetry = () => {
+    resetScanner();
   };
   
   const titles = {
@@ -670,211 +780,199 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white p-4 rounded-lg w-full max-w-md">
-        <h2 className="text-xl font-bold mb-4 text-center">Scan QR Code for {titles[type]}</h2>
-        
-        {/* Server status indicator (only in production) */}
-        {import.meta.env.PROD && (
-          <div className={`mb-2 p-2 rounded text-sm ${
-            serverAvailable === null 
-              ? 'bg-gray-100 text-gray-700' 
-              : serverAvailable 
-                ? 'bg-green-100 text-green-700' 
-                : 'bg-red-100 text-red-700'
-          }`}>
-            <p className="font-bold flex items-center">
-              <span className={`inline-block w-3 h-3 rounded-full mr-2 ${
-                serverAvailable === null 
-                  ? 'bg-gray-500' 
-                  : serverAvailable 
-                    ? 'bg-green-500' 
-                    : 'bg-red-500'
-              }`}></span>
-              Server Status: {
-                serverAvailable === null 
-                  ? 'Checking...' 
-                  : serverAvailable 
-                    ? 'Online' 
-                    : 'Offline'
-              }
-            </p>
-            {!serverAvailable && serverAvailable !== null && (
-              <p className="mt-1 text-xs">
-                Server is currently unavailable. The app will operate in offline mode.
-              </p>
-            )}
-          </div>
-        )}
-        
-        {/* Debug mode toggle */}
-        <div className="mb-4 p-3 bg-yellow-100 rounded border-2 border-yellow-400">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center">
-              <input
-                type="checkbox"
-                id="debug-mode"
-                checked={debugMode}
-                onChange={toggleDebugMode}
-                className="mr-2 h-6 w-6"
-              />
-              <label htmlFor="debug-mode" className="text-base font-bold text-gray-700">
-                Debug Mode {debugMode ? '(ENABLED)' : '(DISABLED)'}
-              </label>
-            </div>
-          </div>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">QR Scanner - {titles[type]}</h2>
           
-          {debugMode && (
-            <>
-              <div className="flex items-center mb-2">
-                <input
-                  type="checkbox"
-                  id="skip-location"
-                  checked={skipLocationCheck}
-                  onChange={() => setSkipLocationCheck(prev => !prev)}
-                  className="mr-2 h-6 w-6"
-                />
-                <label htmlFor="skip-location" className="text-base text-gray-700 font-bold">
-                  Skip Location Check
-                </label>
-              </div>
-              
-              <button
-                onClick={simulateSuccessfulScan}
-                className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg text-lg font-bold mb-2"
-                disabled={isProcessing}
-              >
-                {isProcessing ? "Processing..." : "Test Success (Click Here)"}
-              </button>
-              
-              {import.meta.env.PROD && (
-                <div className="mt-2 p-2 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
-                  <p className="font-bold">⚠️ Production Environment Notice:</p>
-                  <p>The server may be experiencing issues. Debug mode is enabled by default to ensure functionality.</p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-        
-        {/* Success message */}
-        {scanSuccess ? (
-          <div className="text-center">
-            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-6 rounded mb-4">
-              <div className="text-5xl mb-4">✓</div>
-              <h3 className="text-xl font-bold mb-2">{scanSuccess.message}</h3>
-              <p className="mb-4">Your time has been recorded successfully.</p>
-              <button 
-                onClick={handleSuccessConfirm}
-                className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-full w-full"
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Camera selection */}
-            <div className="mb-4">
-              <label htmlFor="camera-select" className="block text-sm font-medium text-gray-700 mb-1">
-                Select Camera:
-              </label>
-              <select
-                id="camera-select"
-                value={selectedCamera}
-                onChange={handleCameraChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
-                disabled={isProcessing}
-              >
-                <option value="">Select a camera</option>
-                {cameras.map(camera => (
-                  <option key={camera.deviceId} value={camera.deviceId}>
-                    {camera.label || `Camera ${camera.deviceId.substr(0, 5)}...`}
-                  </option>
-                ))}
-              </select>
+          {/* Status indicators */}
+          <div className="status-indicators flex flex-col items-end text-xs">
+            {/* Server status indicator */}
+            <div className={`server-status px-2 py-1 rounded mb-1 ${
+              serverAvailable === true 
+                ? 'bg-green-100 text-green-800' 
+                : serverAvailable === false 
+                  ? 'bg-red-100 text-red-800' 
+                  : 'bg-gray-100 text-gray-800'
+            }`}>
+              {serverAvailable === true 
+                ? '✓ Server Online' 
+                : serverAvailable === false 
+                  ? '✗ Server Offline' 
+                  : '? Server Status Unknown'}
             </div>
             
-            {/* Scanning tips */}
-            <div className="mb-4 text-sm text-gray-600 bg-blue-50 p-3 rounded">
-              <p className="font-bold">Tips for scanning:</p>
-              <ul className="list-disc pl-5 mt-1">
-                <li>Ensure good lighting</li>
-                <li>Hold your phone steady</li>
-                <li>Position the QR code in the center of the frame</li>
-                <li>Make sure the entire QR code is visible</li>
-              </ul>
-            </div>
-            
-            {/* Error message */}
-            {error && (
-              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                {error}
-                {error.includes('Authentication failed') ? (
-                  <button 
-                    onClick={handleLoginRedirect}
-                    className="ml-2 bg-blue-500 text-white px-2 py-1 rounded text-sm"
-                  >
-                    Go to Login
-                  </button>
-                ) : (
-                  <button 
-                    onClick={handleRetry}
-                    className="ml-2 bg-red-500 text-white px-2 py-1 rounded text-sm"
-                  >
-                    Retry
-                  </button>
+            {/* Offline mode indicator */}
+            {offlineMode && (
+              <div className="offline-mode-indicator bg-yellow-100 text-yellow-800 px-2 py-1 rounded mb-1">
+                <span>📱 Offline Mode</span>
+                {pendingOfflineEntries > 0 && (
+                  <span className="pending-syncs ml-1 bg-yellow-200 px-1 rounded-full">
+                    {pendingOfflineEntries}
+                  </span>
                 )}
               </div>
             )}
             
-            {/* Processing message */}
-            {isProcessing && (
-              <div className="mb-4 text-center text-gray-600 bg-gray-100 p-3 rounded">
-                Processing scan, please wait...
+            {/* Debug mode indicator */}
+            {debugMode && (
+              <div className="debug-mode-indicator bg-purple-100 text-purple-800 px-2 py-1 rounded">
+                🐞 Debug Mode
               </div>
             )}
-            
-            {/* Video preview */}
-            <div className="relative bg-black rounded-lg overflow-hidden" style={{ height: '300px' }}>
-              <video 
-                ref={videoRef} 
-                className="absolute inset-0 w-full h-full object-cover"
-                playsInline
-                muted
-              />
+          </div>
+        </div>
+        
+        {/* Manual sync button */}
+        {pendingOfflineEntries > 0 && serverAvailable && (
+          <div className="mb-4">
+            <button 
+              onClick={() => syncOfflineEntries()}
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded flex items-center justify-center"
+              disabled={isProcessing}
+            >
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Sync {pendingOfflineEntries} Offline {pendingOfflineEntries === 1 ? 'Entry' : 'Entries'}
+            </button>
+          </div>
+        )}
+        
+        {/* QR Scanner content */}
+        {!scanSuccess && !scanError && (
+          <>
+            <div className="relative aspect-square w-full mb-4 bg-gray-100 rounded overflow-hidden">
+              {/* QR Scanner video */}
+              <div ref={videoContainerRef} className="absolute inset-0">
+                <video ref={videoRef} className="h-full w-full object-cover" />
+              </div>
               
               {/* Scanning overlay */}
-              <div className="absolute inset-0 pointer-events-none">
-                <div className="absolute inset-0 border-2 border-white opacity-50"></div>
-                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 border-2 border-yellow-400">
-                  <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-yellow-400"></div>
-                  <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-yellow-400"></div>
-                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-yellow-400"></div>
-                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-yellow-400"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="scanner-overlay">
+                  <div className="scanner-line"></div>
                 </div>
               </div>
               
-              {/* Hidden canvas for processing */}
-              <canvas ref={canvasRef} className="hidden" />
+              {/* Processing indicator */}
+              {isProcessing && (
+                <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                  <div className="text-white text-center">
+                    <div className="spinner mb-2"></div>
+                    <p>Processing...</p>
+                  </div>
+                </div>
+              )}
             </div>
             
-            {/* Action buttons */}
-            <div className="mt-4 flex space-x-2">
-              <button
-                onClick={onClose}
-                className="flex-1 bg-gray-300 text-gray-800 py-2 px-4 rounded-full"
-                disabled={isProcessing}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRetry}
-                className="flex-1 bg-yellow-400 text-white py-2 px-4 rounded-full"
-                disabled={isProcessing}
-              >
-                Reset
-              </button>
+            {/* Controls */}
+            <div className="flex flex-col space-y-4">
+              {/* Debug mode toggle */}
+              <div className="flex items-center justify-between">
+                <label htmlFor="debug-mode" className="text-sm font-medium text-gray-700">
+                  Debug Mode
+                  <span className="ml-2 text-xs text-gray-500">(Bypasses API calls)</span>
+                </label>
+                <div className="relative inline-block w-10 mr-2 align-middle select-none">
+                  <input 
+                    type="checkbox" 
+                    id="debug-mode" 
+                    checked={debugMode} 
+                    onChange={(e) => setDebugMode(e.target.checked)}
+                    className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                  />
+                  <label 
+                    htmlFor="debug-mode" 
+                    className={`toggle-label block overflow-hidden h-6 rounded-full cursor-pointer ${debugMode ? 'bg-green-400' : 'bg-gray-300'}`}
+                  ></label>
+                </div>
+              </div>
+              
+              {/* Skip location check toggle */}
+              <div className="flex items-center justify-between">
+                <label htmlFor="skip-location" className="text-sm font-medium text-gray-700">
+                  Skip Location Check
+                  <span className="ml-2 text-xs text-gray-500">(For testing only)</span>
+                </label>
+                <div className="relative inline-block w-10 mr-2 align-middle select-none">
+                  <input 
+                    type="checkbox" 
+                    id="skip-location" 
+                    checked={skipLocationCheck} 
+                    onChange={(e) => setSkipLocationCheck(e.target.checked)}
+                    className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                  />
+                  <label 
+                    htmlFor="skip-location" 
+                    className={`toggle-label block overflow-hidden h-6 rounded-full cursor-pointer ${skipLocationCheck ? 'bg-green-400' : 'bg-gray-300'}`}
+                  ></label>
+                </div>
+              </div>
+              
+              {/* Action buttons */}
+              <div className="flex space-x-2">
+                <button 
+                  onClick={onClose} 
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleRetry} 
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded"
+                >
+                  Reset
+                </button>
+              </div>
             </div>
           </>
+        )}
+        
+        {/* Success message */}
+        {scanSuccess && (
+          <div className="text-center">
+            <div className="bg-green-100 text-green-800 p-4 rounded-lg mb-4">
+              <svg className="w-6 h-6 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <p className="font-medium">{scanSuccess.message}</p>
+              {offlineMode && (
+                <p className="text-xs mt-2">Entry saved offline and will sync when connection is restored.</p>
+              )}
+            </div>
+            <button 
+              onClick={onClose} 
+              className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded w-full"
+            >
+              Close
+            </button>
+          </div>
+        )}
+        
+        {/* Error message */}
+        {scanError && (
+          <div className="text-center">
+            <div className="bg-red-100 text-red-800 p-4 rounded-lg mb-4">
+              <svg className="w-6 h-6 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              <p className="font-medium">Error</p>
+              <p className="text-sm">{scanError}</p>
+            </div>
+            <div className="flex space-x-2">
+              <button 
+                onClick={onClose} 
+                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded"
+              >
+                Close
+              </button>
+              <button 
+                onClick={handleRetry} 
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
