@@ -164,27 +164,14 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
 // 리포트 목록 조회 API 수정
 router.get('/reports', authenticate, isAdmin, async (req, res) => {
   try {
+    // 관계 정보 없이 기본 리포트 데이터만 가져오기
     const reports = await prisma.report.findMany({
       orderBy: {
         createdAt: 'desc'
-      },
-      include: {
-        location: {
-          select: {
-            name: true,
-            branch: true
-          }
-        },
-        creator: {
-          select: {
-            name: true,
-            email: true
-          }
-        }
       }
     });
     
-    // 응답 데이터 가공
+    // 데이터베이스 오류 없이 기본 데이터만 반환
     const formattedReports = reports.map(report => ({
       id: report.id,
       title: report.title,
@@ -192,11 +179,6 @@ router.get('/reports', authenticate, isAdmin, async (req, res) => {
       endDate: report.endDate.toISOString().split('T')[0],
       fileName: report.fileName,
       locationId: report.locationId,
-      locationName: report.location ? 
-        (report.location.branch ? 
-          `${report.location.name} - ${report.location.branch}` : 
-          report.location.name) : 
-        null,
       createdAt: report.createdAt.toISOString()
     }));
     
