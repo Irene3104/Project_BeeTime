@@ -136,11 +136,30 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationRef = useRef<number | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const scannerIntervalRef = useRef<number | null>(null);
+  
+  // Create a hidden canvas element for QR scanning
+  useEffect(() => {
+    // Create canvas element if it doesn't exist
+    if (!canvasRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.style.display = 'none';
+      document.body.appendChild(canvas);
+      canvasRef.current = canvas;
+      console.log("Created canvas element for QR scanning");
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (canvasRef.current && document.body.contains(canvasRef.current)) {
+        document.body.removeChild(canvasRef.current);
+      }
+    };
+  }, []);
   
   // Check for pending offline entries
   const checkPendingOfflineEntries = useCallback(() => {
@@ -165,23 +184,37 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   const checkServerAvailability = useCallback(async () => {
     if (import.meta.env.DEV) {
       // In development, assume server is available
+      console.log("Development environment detected, assuming server is available");
       setServerAvailable(true);
       setOfflineMode(false);
       return true;
     }
     
     try {
+      // Try both the /health endpoint and the root endpoint
       console.log("Checking server availability at:", API_URL);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      const response = await fetch(`${API_URL}/health`, {
+      // First try the /health endpoint
+      let response = await fetch(`${API_URL}/health`, {
         method: 'GET',
         signal: controller.signal
       }).catch(error => {
-        console.error("Server health check failed:", error);
+        console.log("Health endpoint check failed, trying root endpoint");
         return { ok: false };
       });
+      
+      // If health endpoint fails, try the root endpoint
+      if (!response.ok) {
+        response = await fetch(API_URL, {
+          method: 'GET',
+          signal: controller.signal
+        }).catch(error => {
+          console.error("Root endpoint check failed:", error);
+          return { ok: false };
+        });
+      }
       
       clearTimeout(timeoutId);
       
@@ -479,10 +512,11 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
 
       try {
         // Make the API call
-        const response = await fetch('/api/time-entries', {
+        const response = await fetch(`${API_URL}/time-entries`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token') || sessionStorage.getItem('token') || ''}`
           },
           body: JSON.stringify(apiData),
         });
@@ -552,44 +586,6 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     }
   };
 
-  // Start camera and scanning
-  const startScanning = useCallback(async () => {
-    if (!selectedCamera) {
-      setError('No camera selected. Please select a camera.');
-      return;
-    }
-
-    try {
-      // Stop any existing stream
-      stopScanning();
-      
-      // Get camera stream
-      const constraints: MediaStreamConstraints = {
-        video: {
-          deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
-          facingMode: selectedCamera ? undefined : 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 15 }
-        }
-      };
-      
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      
-      // Start jsQR scanning loop
-      scanQRCode();
-    } catch (err) {
-      console.error('Error starting camera:', err);
-      setError('Failed to start camera. Please check permissions and try again.');
-    }
-  }, [selectedCamera]);
-  
   // Stop scanning and release resources
   const stopScanning = useCallback(() => {
     // Stop animation frame
@@ -618,6 +614,13 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         canvas: !!canvasRef.current,
         stream: !!streamRef.current
       });
+      
+      // Try again in a moment if video isn't ready
+      setTimeout(() => {
+        if (videoRef.current && streamRef.current) {
+          scanQRCode();
+        }
+      }, 500);
       return;
     }
     
@@ -631,6 +634,13 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     }
     
     try {
+      // Check if video is ready
+      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+        console.log("Video not ready yet, waiting...");
+        animationRef.current = requestAnimationFrame(scanQRCode);
+        return;
+      }
+      
       // Set canvas dimensions to match video
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -659,6 +669,65 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     // Continue scanning
     animationRef.current = requestAnimationFrame(scanQRCode);
   }, []);
+  
+  // Start camera and scanning
+  const startScanning = useCallback(async () => {
+    if (!selectedCamera) {
+      setError('No camera selected. Please select a camera.');
+      return;
+    }
+
+    try {
+      // Stop any existing stream
+      stopScanning();
+      
+      // Get camera stream
+      const constraints: MediaStreamConstraints = {
+        video: {
+          deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
+          facingMode: selectedCamera ? undefined : 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 15 }
+        }
+      };
+      
+      console.log("Requesting camera with constraints:", constraints);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          console.log("Video metadata loaded, playing video");
+          videoRef.current?.play().catch(err => {
+            console.error("Error playing video:", err);
+          });
+        };
+        
+        // Fallback if onloadedmetadata doesn't fire
+        setTimeout(() => {
+          if (videoRef.current && videoRef.current.paused) {
+            console.log("Fallback: trying to play video after timeout");
+            videoRef.current.play().catch(err => {
+              console.error("Error playing video in fallback:", err);
+            });
+          }
+        }, 1000);
+      } else {
+        console.error("Video element not found");
+      }
+      
+      // Start jsQR scanning loop after a short delay to ensure video is ready
+      setTimeout(() => {
+        console.log("Starting QR scanning loop");
+        scanQRCode();
+      }, 1500);
+    } catch (err) {
+      console.error('Error starting camera:', err);
+      setError('Failed to start camera. Please check permissions and try again.');
+    }
+  }, [selectedCamera, scanQRCode, stopScanning]);
   
   // Toggle debug mode
   const toggleDebugMode = () => {
@@ -780,6 +849,9 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white p-4 rounded-lg w-full max-w-md">
+        {/* Hidden canvas for QR scanning */}
+        <canvas ref={canvasRef} className="hidden" width="640" height="480" />
+        
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">QR Scanner - {titles[type]}</h2>
           
@@ -923,6 +995,17 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
                   Reset
                 </button>
               </div>
+              
+              {/* Debug test button */}
+              {debugMode && (
+                <button 
+                  onClick={simulateSuccessfulScan}
+                  className="w-full mt-2 bg-purple-500 hover:bg-purple-600 text-white py-2 px-4 rounded"
+                  disabled={isProcessing}
+                >
+                  Test Scan (Debug)
+                </button>
+              )}
             </div>
           </>
         )}
