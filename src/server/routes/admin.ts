@@ -27,7 +27,7 @@ router.get('/dashboard', authenticate, isAdmin, async (req, res) => {
     });
 
     // 리포트 수 조회 (나중에 구현)
-    const reportCount = await prisma.timeRecord.count({
+    const reportCount = await prisma.report.count({
       where: {
         createdAt: {
           gte: new Date(new Date().setDate(new Date().getDate() - 30)) // 최근 30일
