@@ -65,10 +65,13 @@ app.get('/.well-known/render-health', (req, res) => {
 app.use('/auth', authRouter);
 app.use('/user', userRouter);
 app.use('/locations', locationRouter);
+app.use('/time-records', timeRecordsRouter);
+
 
 // Protected routes
 app.use('/api/time-entries', authenticate, timeEntriesRouter);
-app.use('/api/time-records', authenticate, timeRecordsRouter);
+
+
 // Admin routes
 app.use('/admin', adminRouter);
 

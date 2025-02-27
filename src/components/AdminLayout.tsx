@@ -43,7 +43,7 @@ export const AdminLayout = ({ children }: AdminLayoutProps) => {
         {isMenuOpen && (
           <div className="fixed top-[71px] right-0 h-screen w-screen bg-[#FFFBF6] shadow-lg z-50">
             <nav className="py-6 space-y-2">
-              <Link to="/AdminDashboard" 
+              <Link to="/admin/MainDashboard" 
                 className="flex items-center px-6 py-6 text-gray-700 hover:bg-yellow-50">
                 <img src={DashboardIcon} alt="" className="w-5 h-5" />
                 <span className="font-montserrat ml-4 text-base">Dashboard</span>
@@ -63,11 +63,11 @@ export const AdminLayout = ({ children }: AdminLayoutProps) => {
                 <img src={ReportsIcon} alt="" className="w-5 h-5" />
                 <span className="font-montserrat ml-4 text-base">Reports</span>
               </Link>
-              <Link to="/admin/settings" 
+              {/* <Link to="/admin/settings" 
                 className="flex items-center px-6 py-6 text-gray-700 hover:bg-yellow-50">
                 <img src={SettingsIcon} alt="" className="w-5 h-5" />
                 <span className="font-montserrat ml-4 text-base">Settings</span>
-              </Link>
+              </Link> */}
 
               <div className="pt-[100px]">
             <button
@@ -113,13 +113,13 @@ export const AdminLayout = ({ children }: AdminLayoutProps) => {
             <img src={ReportsIcon} alt="" className="w-[20px] h-[20px]" />
             <span className="font-montserrat mx-3 text-[18px] font-medium">Reports</span>
           </Link>
-          <Link to="/admin/settings" 
+          {/* <Link to="/admin/settings" 
             className="flex items-center px-10 py-5 hover:bg-[#A77750]/20">
             <img src={SettingsIcon} alt="" className="w-6 h-6" />
             <span className="font-montserrat mx-3 text-[18px] font-medium">Settings</span>
-          </Link>
+          </Link> */}
 
-          <div className="pt-[100px]">
+          <div className="pt-[150px]">
             <button
               onClick={handleLogout}
               className="flex items-center w-full px-10 py-5 hover:bg-[#A77750]/20"

@@ -6,7 +6,10 @@ async function main() {
   // master admin 계정 생성
   await prisma.user.upsert({
     where: { email: 'beetimeapp@gmail.com' },
-    update: {},
+    update: { 
+      role: 'ADMIN',
+      isProfileComplete: true
+    },
     create: {
       email: 'beetimeapp@gmail.com',
       role: 'ADMIN',
@@ -17,7 +20,10 @@ async function main() {
   // Google 로그인용 admin 계정 생성
   await prisma.user.upsert({
     where: { email: 'imeugenejun@gmail.com' },
-    update: {},
+    update: {
+      role: 'ADMIN', 
+      isProfileComplete: true
+    },
     create: {
       email: 'imeugenejun@gmail.com',
       role: 'ADMIN',

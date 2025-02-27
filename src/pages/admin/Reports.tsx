@@ -33,6 +33,7 @@ export const Reports = () => {
   const [endDate, setEndDate] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [selectedReports, setSelectedReports] = useState<number[]>([]);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // 인증 헤더 가져오기
   const getAuthHeaders = () => {
@@ -73,10 +74,19 @@ export const Reports = () => {
   // 선택된 리포트 삭제
   const deleteSelectedReports = async () => {
     try {
+      // 삭제 전 확인 메시지
+      const confirmDelete = window.confirm(
+        `Are you sure you want to delete ${selectedReports.length} selected report(s)? This action cannot be undone.`
+      );
+      
+      if (!confirmDelete) {
+        return; // 사용자가 취소한 경우
+      }
+      
       setIsDeleting(true);
       setError(null);
       
-      const response = await fetch(`${API_URL}/admin/reports/delete`, {
+      const response = await fetch(`${API_URL}/time-records/reports/delete`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -113,11 +123,11 @@ export const Reports = () => {
         setIsLoading(true);
         setError(null);
         
-        console.log('Fetching reports from:', `${API_URL}/admin/reports`);
+        console.log('Fetching reports from:', `${API_URL}/time-records/reports`);
         const headers = getAuthHeaders();
         console.log('Request headers:', headers);
         
-        const response = await fetch(`${API_URL}/admin/reports`, {
+        const response = await fetch(`${API_URL}/time-records/reports`, {
           headers: headers,
         });
         
@@ -145,11 +155,11 @@ export const Reports = () => {
   useEffect(() => {
     const fetchLocations = async () => {
       try {
-        console.log('Fetching locations from:', `${API_URL}/admin/locations`);
+        console.log('Fetching locations from:', `${API_URL}/time-records/locations`);
         const headers = getAuthHeaders();
         console.log('Request headers for locations:', headers);
         
-        const response = await fetch(`${API_URL}/admin/locations`, {
+        const response = await fetch(`${API_URL}/time-records/locations`, {
           headers: headers,
         });
         
@@ -187,11 +197,11 @@ export const Reports = () => {
       setError(null);
       
       if (!startDate || !endDate) {
-        setError('Please select start and end dates');
+        setError('시작일과 종료일을 모두 선택해주세요.');
         return;
       }
       
-      const response = await fetch(`${API_URL}/admin/reports/generate`, {
+      const response = await fetch(`${API_URL}/time-records/reports/generate`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -201,12 +211,40 @@ export const Reports = () => {
         }),
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate report');
+      // 응답이 JSON 형식인지 확인
+      const contentType = response.headers.get('content-type');
+      let data;
+      
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          data = { error: text };
+        }
       }
       
-      const newReport = await response.json();
+      if (!response.ok) {
+        // "No records found for the specified period" 오류 메시지를 사용자 친화적으로 변환
+        if (data.error === "No records found for the specified period") {
+          const locationText = selectedLocation 
+            ? locations.find(loc => loc.id.toString() === selectedLocation)?.name || '선택한 위치'
+            : '모든 위치';
+            
+          const formattedStartDate = format(new Date(startDate), 'yyyy년 MM월 dd일');
+          const formattedEndDate = format(new Date(endDate), 'yyyy년 MM월 dd일');
+          
+          setError(`${locationText}에서 ${formattedStartDate}부터 ${formattedEndDate}까지의 기록이 존재하지 않습니다.`);
+        } else {
+          setError(data.error || '리포트 생성에 실패했습니다.');
+        }
+        return;
+      }
+      
+      // JSON 응답 처리
+      const newReport = data;
       
       // 리포트 목록 업데이트
       setReports(prevReports => [newReport, ...prevReports]);
@@ -216,9 +254,13 @@ export const Reports = () => {
       setEndDate('');
       setSelectedLocation('');
       
+      // 성공 메시지 표시
+      setError(null);
+      setSuccessMessage('리포트가 성공적으로 생성되었습니다.');
+      
     } catch (error: any) {
       console.error('Error generating report:', error);
-      setError(error.message || 'Failed to generate report');
+      setError(error.message || '리포트 생성에 실패했습니다.');
     } finally {
       setIsGenerating(false);
     }
@@ -227,7 +269,7 @@ export const Reports = () => {
   // 리포트 다운로드 함수
   const downloadReport = async (id: number) => {
     try {
-      const response = await fetch(`${API_URL}/admin/reports/${id}/download`, {
+      const response = await fetch(`${API_URL}/time-records/reports/${id}/download`, {
         headers: getAuthHeaders(),
       });
       
@@ -257,15 +299,42 @@ export const Reports = () => {
     }
   };
 
+  // 리포트 목록 새로고침 함수
+  const fetchReports = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      console.log('Fetching reports from:', `${API_URL}/time-records/reports`);
+      const headers = getAuthHeaders();
+      
+      const response = await fetch(`${API_URL}/time-records/reports`, {
+        headers: headers,
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch reports: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      setReports(data);
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      setError('Failed to load reports');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <AdminLayout>
       <div className="space-y-6 p-6">
-        <h1 className="text-2xl font-bold mb-6">Generated Reports</h1>
+        <h1 className="text-[32px] font-montserrat font-semibold">Attendance Reports</h1>
         
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-bold mb-4">Generate New Report</h2>
+          <h2 className="text-[20px] font-bold mb-4">Generate New Report</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Start Date
@@ -308,11 +377,11 @@ export const Reports = () => {
               </select>
             </div>
             
-            <div className="flex items-end">
+            <div>
               <button
                 onClick={generateReport}
                 disabled={isGenerating}
-                className="w-full py-2 px-4 bg-[#FDCF17] text-black font-medium rounded-md hover:bg-[#e6bb14] flex items-center justify-center"
+                className="w-full py-2 px-6 bg-[#FDCF17] text-black font-medium rounded-md hover:bg-[#e6bb14] flex items-center justify-center h-[42px]"
               >
                 {isGenerating ? (
                   <span>Generating...</span>
@@ -330,27 +399,35 @@ export const Reports = () => {
               {error}
             </div>
           )}
+          
+          {successMessage && (
+            <div className="bg-green-100 text-green-700 p-3 rounded-md mt-4">
+              {successMessage}
+            </div>
+          )}
         </div>
         
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-xl font-bold">Report List</h2>
+            <h2 className="text-[20px] font-bold">Report List</h2>
             <div className="flex space-x-2">
               {selectedReports.length > 0 && (
                 <>
                   <button
                     onClick={downloadSelectedReports}
-                    className="py-1 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center"
+                    className="py-1 px-3 md:py-2 md:px-4 text-sm md:text-base bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center"
                   >
-                    <FiDownload className="mr-1" /> Download ({selectedReports.length})
+                    <FiDownload className="mr-1" /> 
+                    <span className="hidden xs:inline">Download</span> ({selectedReports.length})
                   </button>
                   <button
                     onClick={deleteSelectedReports}
                     disabled={isDeleting}
-                    className="py-1 px-3 bg-red-500 text-white rounded-md hover:bg-red-600 flex items-center"
+                    className="py-1 px-3 md:py-2 md:px-4 text-sm md:text-base bg-red-500 text-white rounded-md hover:bg-red-600 flex items-center"
                   >
                     <FiTrash2 className="mr-1" /> 
-                    {isDeleting ? 'Deleting...' : `Delete (${selectedReports.length})`}
+                    <span className="hidden xs:inline">Delete</span> 
+                    {isDeleting ? '...' : `(${selectedReports.length})`}
                   </button>
                 </>
               )}
@@ -362,7 +439,8 @@ export const Reports = () => {
           ) : reports.length === 0 ? (
             <div className="p-6 text-center text-gray-500">No reports have been generated yet.</div>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
+            <div className='overflow-x-auto'>
+              <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -405,7 +483,7 @@ export const Reports = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button
                         onClick={() => downloadReport(report.id)}
-                        className="text-[#FDCF17] hover:text-[#e6bb14]"
+                        className="text-[#A18206] hover:text-[#e6bb14]"
                       >
                         <FiDownload className="inline-block mr-1" /> Download
                       </button>
@@ -414,6 +492,9 @@ export const Reports = () => {
                 ))}
               </tbody>
             </table>
+
+            </div>
+            
           )}
         </div>
       </div>

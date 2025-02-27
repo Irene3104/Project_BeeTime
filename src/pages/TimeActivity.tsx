@@ -89,17 +89,22 @@ export const TimeActivity: React.FC = () => {
       
       // 데이터 포맷팅
       const formattedData = weekDates.map(weekDate => {
-        const record = data.find((r: any) => 
-          format(new Date(r.date), 'yyyy-MM-dd') === format(weekDate.date, 'yyyy-MM-dd')
-        );
+        const record = data.find((r: any) => {
+          // DB 날짜 형식 (13-02-2025)에서 일/월 부분만 추출
+          const [day, month] = r.date.split('-');
+          // 테이블용 날짜 형식 (dd/MM)
+          const tableDate = format(weekDate.date, 'dd/MM');
+          // 일/월 형식으로 비교
+          return tableDate === `${day}/${month}`;
+        });
         
         if (record) {
           return {
-            ...weekDate,
-            checkIn: record.clockInTime || null,
-            breakIn: record.breakStartTime || null,
-            breakOut: record.breakEndTime || null,
-            checkOut: record.clockOutTime || null
+            date: weekDate.date,
+            checkIn: record.clockInTime,
+            breakIn: record.breakStartTime,
+            breakOut: record.breakEndTime,
+            checkOut: record.clockOutTime
           };
         }
         return weekDate;

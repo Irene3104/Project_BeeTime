@@ -1,309 +1,292 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { prisma } from '../db';
-import { validateRequest } from '../middleware/validateRequest';
-import { formatInTimeZone } from 'date-fns-tz';
+import { authenticate } from '../middleware/authenticate';
+import { isAdmin } from '../middleware/isAdmin';
+import { ReportService } from '../services/reportService';
 import { format } from 'date-fns';
 
 const router = Router();
-const TIMEZONE = 'Australia/Sydney';
 
-// 시간 기록 조회 스키마
-const timeRecordsQuerySchema = z.object({
-  startDate: z.string().optional(),
-  endDate: z.string().optional()
-});
-
-// 시간 기록 생성 스키마
-const timeRecordCreateSchema = z.object({
-  date: z.string(),
-  clockInTime: z.string(),
-  breakStartTime: z.string().optional(),
-  breakEndTime: z.string().optional(),
-  clockOutTime: z.string().optional()
-});
-
-// 시간 기록 업데이트 스키마
-const timeRecordUpdateSchema = z.object({
-  clockInTime: z.string().optional(),
-  breakStartTime: z.string().optional(),
-  breakEndTime: z.string().optional(),
-  clockOutTime: z.string().optional()
-});
-
-// 시간 기록 조회 API
-router.get('/', validateRequest(timeRecordsQuerySchema, 'query'), async (req, res) => {
+router.get('/', authenticate, async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: '인증이 필요합니다.' });
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { startDate, endDate } = req.query as { startDate?: string, endDate?: string };
+    const userId = req.user.id;
+    console.log('Fetching time records for user:', userId);  // 디버깅용 로그
     
-    console.log(`[TimeRecords] 조회 요청 - 사용자: ${req.user.id}, 기간: ${startDate} ~ ${endDate}`);
-    
-    // 날짜 필터 조건 설정
-    let dateFilter = {};
-    if (startDate || endDate) {
-      dateFilter = {
-        OR: [
-          {
-            date: {
-              gte: startDate,
-              ...(endDate ? { lte: endDate } : {})
-            }
-          }
-        ]
-      };
-    }
-
-    // 시간 기록 조회
+    // DB에서 시간 기록 조회
     const timeRecords = await prisma.timeRecord.findMany({
-      where: { 
-        userId: req.user.id,
-        ...dateFilter
-      },
-      orderBy: { date: 'asc' }
-    });
-    
-    console.log(`[TimeRecords] 조회 결과 - ${timeRecords.length}개 기록 찾음`);
-    
-    // 프론트엔드에 맞게 데이터 포맷팅
-    const formattedRecords = timeRecords.map(record => {
-      return {
-        id: record.id,
-        date: record.date,
-        clockInTime: record.clockInTime,
-        breakStartTime: record.breakStartTime || null,
-        breakEndTime: record.breakEndTime || null,
-        clockOutTime: record.clockOutTime || null,
-        workingHours: record.workingHours
-      };
-    });
-    
-    res.json(formattedRecords);
-  } catch (error) {
-    console.error('[TimeRecords] 시간 기록 조회 오류:', error);
-    res.status(500).json({ error: '시간 기록을 조회하는 중 오류가 발생했습니다.' });
-  }
-});
-
-// 시간 기록 생성 API
-router.post('/', validateRequest(timeRecordCreateSchema), async (req, res) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({ error: '인증이 필요합니다.' });
-    }
-
-    const { date, clockInTime, breakStartTime, breakEndTime, clockOutTime } = req.body;
-    
-    console.log(`[TimeRecords] 생성 요청 - 사용자: ${req.user.id}, 날짜: ${date}`);
-    
-    // 이미 해당 날짜에 기록이 있는지 확인
-    const existingRecord = await prisma.timeRecord.findFirst({
       where: {
-        userId: req.user.id,
-        date: date
+        userId: userId
+      },
+      select: {
+        date: true,
+        clockInTime: true,
+        clockOutTime: true,
+        breakStartTime: true,
+        breakEndTime: true
+      },
+      orderBy: {
+        date: 'desc'
       }
     });
 
-    if (existingRecord) {
-      return res.status(400).json({ error: '해당 날짜에 이미 시간 기록이 존재합니다.' });
-    }
+    console.log('Found records:', timeRecords.length);  // 디버깅용 로그
+    res.json(timeRecords);
     
-    // 근무 시간 계산
-    let workingHours = 0;
-    if (clockInTime && clockOutTime) {
-      const [inHour, inMinute] = clockInTime.split(':').map(Number);
-      const [outHour, outMinute] = clockOutTime.split(':').map(Number);
-      
-      let totalMinutes = (outHour * 60 + outMinute) - (inHour * 60 + inMinute);
-      
-      // 휴식 시간 계산
-      if (breakStartTime && breakEndTime) {
-        const [breakInHour, breakInMinute] = breakStartTime.split(':').map(Number);
-        const [breakOutHour, breakOutMinute] = breakEndTime.split(':').map(Number);
-        
-        const breakMinutes = (breakOutHour * 60 + breakOutMinute) - (breakInHour * 60 + breakInMinute);
-        totalMinutes -= breakMinutes;
+  } catch (error) {
+    console.error('Error fetching time records:', error);
+    res.status(500).json({ error: 'Failed to fetch time records' });
+  }
+});
+
+// 리포트 생성 엔드포인트
+router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
+  try {
+    console.log('[Report API] Report generation started');
+    const { startDate, endDate, locationId } = req.body;
+    
+    // 날짜 문자열로 변환 (DD-MM-YYYY 형식으로 통일)
+    const formattedStartDate = format(new Date(startDate), 'dd-MM-yyyy');
+    const formattedEndDate = format(new Date(endDate), 'dd-MM-yyyy');
+    
+    console.log(`[Report API] Date range: ${formattedStartDate} to ${formattedEndDate}`);
+    console.log(`[Report API] Location ID: ${locationId || 'All Locations'}`);
+
+    // 타임레코드 조회 조건 설정
+    const where: any = {};
+    
+    // 날짜 범위 설정 (문자열 비교 대신 날짜 객체 사용)
+    const startDateObj = new Date(startDate);
+    const endDateObj = new Date(endDate);
+    startDateObj.setHours(0, 0, 0, 0);
+    endDateObj.setHours(23, 59, 59, 999);
+    
+    where.date = {
+      gte: formattedStartDate,
+      lte: formattedEndDate
+    };
+    
+    if (locationId) {
+      where.locationId = parseInt(locationId);
+    }
+
+    console.log('[Report API] Query conditions:', JSON.stringify(where));
+
+    // 타임레코드 데이터 조회
+    const timeRecords = await prisma.timeRecord.findMany({
+      where,
+      include: {
+        user: {
+          select: {
+            name: true,
+            email: true,
+            title: true
+          }
+        },
+        location: {
+          select: {
+            name: true,
+            branch: true
+          }
+        }
+      },
+      orderBy: {
+        date: 'asc'
       }
-      
-      workingHours = totalMinutes / 60;
-    }
+    });
+
+    console.log(`[Report API] Found ${timeRecords.length} records`);
+    console.log('[Report API] First few records:', timeRecords.slice(0, 3));
     
-    // 시간 기록 생성
-    const timeRecord = await prisma.timeRecord.create({
+    if (timeRecords.length === 0) {
+      return res.status(404).json({ error: 'No records found for the specified period' });
+    }
+
+    // 위치 정보 가져오기
+    let locationName = 'All Locations';
+    if (locationId) {
+      const location = await prisma.location.findUnique({
+        where: { id: parseInt(locationId) },
+        select: { name: true, branch: true }
+      });
+      
+      if (location) {
+        locationName = location.branch ? 
+          `${location.name} - ${location.branch}` : 
+          location.name;
+      }
+    }
+
+    console.log('[Report API] Calling ReportService.generateAttendanceReport');
+    const excelBuffer = await ReportService.generateAttendanceReport(timeRecords);
+    console.log('[Report API] Excel buffer generated');
+
+    // 파일명 생성
+    const fileName = `${locationName}_Attendance Report_${formattedStartDate} to ${formattedEndDate}.xlsx`;
+    
+    // 리포트 정보를 데이터베이스에 저장
+    const reportTitle = `${locationName} Attendance Report ${formattedStartDate} to ${formattedEndDate}`;
+    const report = await prisma.report.create({
       data: {
-        userId: req.user.id,
-        locationId: req.user.locationId || 1, // 기본 위치 ID 설정
-        date: date,
-        clockInTime: clockInTime,
-        clockOutTime: clockOutTime || null,
-        breakStartTime: breakStartTime || null,
-        breakEndTime: breakEndTime || null,
-        breakMinutes: breakStartTime && breakEndTime ? calculateBreakMinutes(breakStartTime, breakEndTime) : 0,
-        workingHours: workingHours,
-        status: clockOutTime ? 'completed' : 'active',
-        note: `Created on ${format(new Date(), 'yyyy-MM-dd HH:mm:ss')}`
+        title: reportTitle,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        fileName: fileName,
+        fileData: Buffer.from(excelBuffer),
+        locationId: locationId ? parseInt(locationId) : null,
+        creatorId: req.user.id
       }
     });
     
-    console.log(`[TimeRecords] 생성 완료 - ID: ${timeRecord.id}`);
+    console.log(`[Report API] Report saved to database with ID: ${report.id}`);
     
+    // 생성된 리포트 정보 반환
     res.status(201).json({
-      id: timeRecord.id,
-      date: timeRecord.date,
-      clockInTime: timeRecord.clockInTime,
-      breakStartTime: timeRecord.breakStartTime,
-      breakEndTime: timeRecord.breakEndTime,
-      clockOutTime: timeRecord.clockOutTime,
-      workingHours: timeRecord.workingHours
+      id: report.id,
+      title: report.title,
+      startDate: report.startDate.toISOString().split('T')[0],
+      endDate: report.endDate.toISOString().split('T')[0],
+      fileName: report.fileName,
+      locationId: report.locationId,
+      locationName: locationName,
+      createdAt: report.createdAt.toISOString()
     });
+    
   } catch (error) {
-    console.error('[TimeRecords] 시간 기록 생성 오류:', error);
-    res.status(500).json({ error: '시간 기록을 생성하는 중 오류가 발생했습니다.' });
+    console.error('[Report API] Error generating report:', error);
+    res.status(500).json({ error: 'Failed to generate report' });
   }
 });
 
-// 시간 기록 업데이트 API
-router.patch('/:id', validateRequest(timeRecordUpdateSchema), async (req, res) => {
+// 리포트 목록 조회 API 수정
+router.get('/reports', authenticate, isAdmin, async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: '인증이 필요합니다.' });
-    }
-
-    const { id } = req.params;
-    const { clockInTime, breakStartTime, breakEndTime, clockOutTime } = req.body;
-    
-    console.log(`[TimeRecords] 업데이트 요청 - ID: ${id}, 사용자: ${req.user.id}`);
-    
-    // 기존 시간 기록 조회
-    const existingRecord = await prisma.timeRecord.findFirst({
-      where: { id: Number(id), userId: req.user.id }
-    });
-    
-    if (!existingRecord) {
-      return res.status(404).json({ error: '시간 기록을 찾을 수 없습니다.' });
-    }
-    
-    // 업데이트할 데이터 준비
-    const updateData: any = {};
-    
-    if (clockInTime) updateData.clockInTime = clockInTime;
-    if (breakStartTime) updateData.breakStartTime = breakStartTime;
-    if (breakEndTime) updateData.breakEndTime = breakEndTime;
-    if (clockOutTime) updateData.clockOutTime = clockOutTime;
-    
-    // 근무 시간 계산
-    const finalClockInTime = clockInTime || existingRecord.clockInTime;
-    const finalClockOutTime = clockOutTime || existingRecord.clockOutTime;
-    const finalBreakStartTime = breakStartTime || existingRecord.breakStartTime;
-    const finalBreakEndTime = breakEndTime || existingRecord.breakEndTime;
-    
-    if (finalClockInTime && finalClockOutTime) {
-      let workingHours = calculateWorkingHours(
-        finalClockInTime, 
-        finalClockOutTime, 
-        finalBreakStartTime, 
-        finalBreakEndTime
-      );
-      updateData.workingHours = workingHours;
-      
-      // 휴식 시간 계산
-      if (finalBreakStartTime && finalBreakEndTime) {
-        updateData.breakMinutes = calculateBreakMinutes(finalBreakStartTime, finalBreakEndTime);
+    const reports = await prisma.report.findMany({
+      orderBy: {
+        createdAt: 'desc'
+      },
+      include: {
+        location: {
+          select: {
+            name: true,
+            branch: true
+          }
+        },
+        creator: {
+          select: {
+            name: true,
+            email: true
+          }
+        }
       }
-    }
-    
-    // 상태 업데이트
-    if (clockOutTime && !existingRecord.clockOutTime) {
-      updateData.status = 'completed';
-    }
-    
-    // 시간 기록 업데이트
-    const updatedRecord = await prisma.timeRecord.update({
-      where: { id: Number(id) },
-      data: updateData
     });
     
-    console.log(`[TimeRecords] 업데이트 완료 - ID: ${id}`);
+    // 응답 데이터 가공
+    const formattedReports = reports.map(report => ({
+      id: report.id,
+      title: report.title,
+      startDate: report.startDate.toISOString().split('T')[0],
+      endDate: report.endDate.toISOString().split('T')[0],
+      fileName: report.fileName,
+      locationId: report.locationId,
+      locationName: report.location ? 
+        (report.location.branch ? 
+          `${report.location.name} - ${report.location.branch}` : 
+          report.location.name) : 
+        null,
+      createdAt: report.createdAt.toISOString()
+    }));
     
-    res.json({
-      id: updatedRecord.id,
-      date: updatedRecord.date,
-      clockInTime: updatedRecord.clockInTime,
-      breakStartTime: updatedRecord.breakStartTime,
-      breakEndTime: updatedRecord.breakEndTime,
-      clockOutTime: updatedRecord.clockOutTime,
-      workingHours: updatedRecord.workingHours
-    });
+    res.json(formattedReports);
   } catch (error) {
-    console.error('[TimeRecords] 시간 기록 업데이트 오류:', error);
-    res.status(500).json({ error: '시간 기록을 업데이트하는 중 오류가 발생했습니다.' });
+    console.error('[Report API] Error fetching reports:', error);
+    res.status(500).json({ error: 'Failed to fetch reports' });
   }
 });
 
-// 시간 기록 삭제 API
-router.delete('/:id', async (req, res) => {
+// 리포트 삭제 API 추가
+router.post('/reports/delete', authenticate, isAdmin, async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: '인증이 필요합니다.' });
-    }
-
-    const { id } = req.params;
+    const { ids } = req.body;
     
-    console.log(`[TimeRecords] 삭제 요청 - ID: ${id}, 사용자: ${req.user.id}`);
-    
-    // 기존 시간 기록 조회
-    const existingRecord = await prisma.timeRecord.findFirst({
-      where: { id: Number(id), userId: req.user.id }
-    });
-    
-    if (!existingRecord) {
-      return res.status(404).json({ error: '시간 기록을 찾을 수 없습니다.' });
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Invalid report IDs' });
     }
     
-    // 시간 기록 삭제
-    await prisma.timeRecord.delete({
-      where: { id: Number(id) }
+    console.log('[Report API] Deleting reports with IDs:', ids);
+    
+    // 리포트 삭제
+    const result = await prisma.report.deleteMany({
+      where: {
+        id: {
+          in: ids.map(id => parseInt(id))
+        }
+      }
     });
     
-    console.log(`[TimeRecords] 삭제 완료 - ID: ${id}`);
+    console.log(`[Report API] Deleted ${result.count} reports`);
     
-    res.json({ message: '시간 기록이 삭제되었습니다.' });
+    res.json({ 
+      message: `${result.count} reports deleted successfully`,
+      deletedCount: result.count
+    });
   } catch (error) {
-    console.error('[TimeRecords] 시간 기록 삭제 오류:', error);
-    res.status(500).json({ error: '시간 기록을 삭제하는 중 오류가 발생했습니다.' });
+    console.error('[Report API] Error deleting reports:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete reports',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 
-// 휴식 시간 계산 (분 단위)
-function calculateBreakMinutes(breakStartTime: string, breakEndTime: string): number {
-  const [startHour, startMinute] = breakStartTime.split(':').map(Number);
-  const [endHour, endMinute] = breakEndTime.split(':').map(Number);
-  
-  return (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
-}
-
-// 근무 시간 계산 (시간 단위)
-function calculateWorkingHours(
-  clockInTime: string, 
-  clockOutTime: string, 
-  breakStartTime: string | null, 
-  breakEndTime: string | null
-): number {
-  const [inHour, inMinute] = clockInTime.split(':').map(Number);
-  const [outHour, outMinute] = clockOutTime.split(':').map(Number);
-  
-  let totalMinutes = (outHour * 60 + outMinute) - (inHour * 60 + inMinute);
-  
-  // 휴식 시간 제외
-  if (breakStartTime && breakEndTime) {
-    const breakMinutes = calculateBreakMinutes(breakStartTime, breakEndTime);
-    totalMinutes -= breakMinutes;
+// 리포트 다운로드 API
+router.get('/reports/:id/download', authenticate, isAdmin, async (req, res) => {
+  try {
+    const reportId = parseInt(req.params.id);
+    
+    // 리포트 정보 조회
+    const report = await prisma.report.findUnique({
+      where: { id: reportId }
+    });
+    
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    
+    // 응답 헤더 설정
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${report.fileName}`);
+    
+    // 저장된 파일 데이터 전송
+    res.send(report.fileData);
+  } catch (error) {
+    console.error('[Report API] Error downloading report:', error);
+    res.status(500).json({ error: 'Failed to download report' });
   }
-  
-  return parseFloat((totalMinutes / 60).toFixed(1));
-}
+});
+
+// 지점 목록 조회 API 추가
+router.get('/locations', authenticate, isAdmin, async (req, res) => {
+  try {
+    const locations = await prisma.location.findMany({
+      orderBy: {
+        name: 'asc'
+      },
+      select: {
+        id: true,
+        name: true,
+        branch: true
+      }
+    });
+    
+    res.json(locations);
+  } catch (error) {
+    console.error('[API] Error fetching locations:', error);
+    res.status(500).json({ error: 'Failed to fetch locations' });
+  }
+});
 
 export { router as timeRecordsRouter };

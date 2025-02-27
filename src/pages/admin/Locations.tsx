@@ -463,7 +463,7 @@ export const Locations = () => {
                           onClick={() => handleDelete(location.id)}
                           className="flex justify-between items-center w-full px-4 py-3 text-[#B3261E] font-montserrat hover:bg-[#dddddd] active:bg-[#dddddd]"
                         >
-                          <span>Delete</span>
+                          <span className="px-2">Delete</span>
                           <img 
                             src={adminIconDelete} 
                             alt="delete" 

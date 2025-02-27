@@ -271,9 +271,9 @@ export const Employees = () => {
                     <td className="px-6 py-4">
                       <button
                         onClick={() => handleDelete(employee.id)}
-                        className="flex justify-between items-center w-full px-4 py-3 text-[#B3261E] font-montserrat hover:bg-[#dddddd] active:bg-[#dddddd]"
+                        className="flex justify-between items-center px-4 py-3 text-[#B3261E] font-montserrat hover:bg-[#dddddd] active:bg-[#dddddd]"
                       >
-                        <span>Delete</span>
+                        <span className="px-2">Delete</span>
                         <img 
                           src={adminIconDelete} 
                           alt="delete" 
