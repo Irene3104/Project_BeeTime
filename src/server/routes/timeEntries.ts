@@ -218,18 +218,10 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         
         console.log('BreakEnd - Original date string:', dateString);
         console.log('BreakEnd - Converted ISO date string:', isoDateString);
-        
-        // Get the active break
-        const activeBreak = existingTimeRecord.breaks.find(b => b.type === 'break' && b.endTime === null);
-        
-        if (!activeBreak) {
-          return res.status(400).json({ error: 'No active break found' });
-        }
-        
-        console.log('BreakEnd - Break start time:', activeBreak.startTime);
+        console.log('BreakEnd - Break start time:', existingTimeRecord.breakStartTime);
         console.log('BreakEnd - Break end time:', timeString);
         
-        const breakStart = new Date(`${isoDateString}T${activeBreak.startTime.toTimeString().substring(0, 5)}:00`);
+        const breakStart = new Date(`${isoDateString}T${existingTimeRecord.breakStartTime}:00`);
         const breakEnd = new Date(`${isoDateString}T${timeString}:00`);
         
         console.log('BreakEnd - Break start date object:', breakStart);
@@ -240,7 +232,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
           console.error('Invalid date calculation for break end:', {
             dateString,
             isoDateString,
-            breakStartTime: activeBreak.startTime,
+            breakStartTime: existingTimeRecord.breakStartTime,
             timeString
           });
           return res.status(400).json({
@@ -259,7 +251,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         }
         
         // Ensure breakMinutes is at least 1 minute
-        breakMinutes = Math.max(1, breakMinutes);
+        breakMinutes = Math.max(1, Math.round(breakMinutes));
         
         console.log('Calculated break minutes:', breakMinutes);
         
@@ -312,10 +304,10 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       
       console.log('ClockOut - Original date string:', dateString);
       console.log('ClockOut - Converted ISO date string:', isoDateString);
-      console.log('ClockOut - Clock in time:', existingTimeRecord.clockIn);
+      console.log('ClockOut - Clock in time:', existingTimeRecord.clockInTime);
       console.log('ClockOut - Clock out time:', timeString);
       
-      const clockIn = new Date(`${isoDateString}T${existingTimeRecord.clockIn.toTimeString().substring(0, 5)}:00`);
+      const clockIn = new Date(`${isoDateString}T${existingTimeRecord.clockInTime}:00`);
       const clockOut = new Date(`${isoDateString}T${timeString}:00`);
       
       console.log('ClockOut - Clock in date object:', clockIn);
@@ -326,7 +318,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         console.error('Invalid date calculation for clock out:', {
           dateString,
           isoDateString,
-          clockInTime: existingTimeRecord.clockIn,
+          clockInTime: existingTimeRecord.clockInTime,
           timeString
         });
         return res.status(400).json({
