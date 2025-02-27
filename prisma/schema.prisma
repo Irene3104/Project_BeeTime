@@ -31,9 +31,10 @@ model Location {
   id            Int            @id @default(autoincrement())
   name          String         @db.VarChar(255)
   branch        String?        @db.VarChar(100)
-  company       String         @db.VarChar(255)
+  company       String?         @db.VarChar(255)
   address       String
   placeId       String         @unique
+  abn           String?
   createdAt     DateTime       @default(now()) @db.Timestamp(6)
   updatedAt     DateTime       @updatedAt @db.Timestamp(6)
   locationUsers LocationUser[]

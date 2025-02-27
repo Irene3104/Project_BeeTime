@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../db';
 import { authenticate } from '../middleware/authenticate';
 import { isAdmin } from '../middleware/isAdmin';
+import fetch from 'node-fetch';
 
 const router = Router();
 
@@ -71,7 +72,7 @@ router.get('/dashboard/employee-count', authenticate, isAdmin, async (req, res) 
   }
 });
 
-// 지점 목록만 조회하는 엔드포인트
+// 지점 목록 조회 엔드포인트
 router.get('/locations', authenticate, isAdmin, async (req, res) => {
   console.log('[Admin API] Location route accessed');
   try {
@@ -79,15 +80,23 @@ router.get('/locations', authenticate, isAdmin, async (req, res) => {
       select: {
         id: true,
         name: true,
-        branch: true
+        branch: true,
+        address: true,
+        company: true
       },
       orderBy: {
         name: 'asc'  // 이름 기준 오름차순 정렬
       }
     });
     
-    console.log('[Admin API] Locations found:', locations);
-    res.json({ locations });
+    // ABN 필드 추가 및 데이터 가공
+    const locationsWithABN = locations.map(location => ({
+      ...location,
+      abn: '-'  // ABN 필드가 없으므로 기본값 '-' 설정
+    }));
+    
+    console.log('[Admin API] Locations found:', locationsWithABN);
+    res.json({ locations: locationsWithABN });
   } catch (error) {
     console.error('[Admin API] Error:', error);
     res.status(500).json({ 
@@ -239,6 +248,153 @@ router.delete('/employees/:id', authenticate, isAdmin, async (req, res) => {
     console.error('=== 직원 삭제 실패 ===');
     console.error('에러:', error);
     res.status(500).json({ error: '직원 삭제 실패' });
+  }
+});
+
+// Location 삭제 엔드포인트 - 하드 삭제 방식
+router.delete('/locations/:id', authenticate, isAdmin, async (req, res) => {
+  console.log('[Admin API] Delete location route accessed');
+  try {
+    const { id } = req.params;
+    const locationId = Number(id);
+    
+    console.log(`[Admin API] Attempting to delete location with ID: ${locationId}`);
+    
+    // 지점 존재 여부 확인
+    const location = await prisma.location.findUnique({
+      where: { id: locationId }
+    });
+    
+    if (!location) {
+      console.log(`[Admin API] Location with ID ${locationId} not found`);
+      return res.status(404).json({ error: '지점을 찾을 수 없습니다.' });
+    }
+    
+    // 하드 삭제 실행
+    await prisma.location.delete({
+      where: { id: locationId }
+    });
+    
+    console.log(`[Admin API] Location ${locationId} deleted successfully`);
+    res.status(200).json({ message: '지점이 성공적으로 삭제되었습니다.' });
+  } catch (error) {
+    console.error('[Admin API] Error during location deletion:', error);
+    res.status(500).json({ 
+      error: '지점 삭제 실패',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Location 추가 엔드포인트 수정
+router.post('/locations', authenticate, isAdmin, async (req, res) => {
+  console.log('[Admin API] Add location route accessed');
+  try {
+    // 요청 본문 로깅
+    console.log('[Admin API] Request body:', req.body);
+    
+    const { name, branch, address, company, abn } = req.body;
+    
+    // 필수 필드 검증
+    if (!name || !address) {
+      return res.status(400).json({ error: 'Name and address are required fields.' });
+    }
+    
+    // 주소로부터 Place ID 가져오기
+    let placeId = null;
+    try {
+      // Google API 키
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      
+      // 주소를 인코딩하여 URL에 포함
+      const encodedAddress = encodeURIComponent(address);
+      
+      console.log(`[Admin API] Geocoding address: ${address}`);
+      
+      // Geocoding API를 사용하여 주소를 좌표로 변환
+      const geocodingUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${apiKey}`;
+      const geocodingResponse = await fetch(geocodingUrl);
+      const geocodingData = await geocodingResponse.json();
+      
+      console.log(`[Admin API] Geocoding response status: ${geocodingData.status}`);
+      
+      // 응답 확인
+      if (geocodingData.status === 'OK' && geocodingData.results && geocodingData.results.length > 0) {
+        // 첫 번째 결과에서 Place ID 추출
+        placeId = geocodingData.results[0].place_id;
+        console.log(`[Admin API] Found Place ID: ${placeId}`);
+      } else {
+        console.log(`[Admin API] No Place ID found for address: ${address}`);
+      }
+    } catch (geocodingError) {
+      console.error('[Admin API] Error during geocoding:', geocodingError);
+    }
+    
+    // 데이터 객체 생성 (필수 필드만 포함)
+    const locationData: any = {
+      name,
+      address
+    };
+    
+    // 선택적 필드는 값이 있을 때만 추가 (null 허용)
+    if (branch !== undefined && branch !== '') locationData.branch = branch;
+    if (company !== undefined && company !== '') locationData.company = company;
+    if (abn !== undefined && abn !== '') locationData.abn = abn;
+    if (placeId) locationData.placeId = placeId;
+    
+    console.log('[Admin API] Creating location with data:', locationData);
+    
+    // 새 지점 생성
+    const newLocation = await prisma.location.create({
+      data: locationData
+    });
+    
+    console.log('[Admin API] New location created:', newLocation);
+    res.status(201).json(newLocation);
+  } catch (error) {
+    console.error('[Admin API] Error creating location:', error);
+    res.status(500).json({ 
+      error: 'Failed to create location',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// 주소로부터 Place ID 가져오기 엔드포인트
+router.get('/geocode', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { address } = req.query;
+    
+    if (!address || typeof address !== 'string') {
+      return res.status(400).json({ error: '주소가 필요합니다.' });
+    }
+    
+    // Google API 키
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    
+    // 주소를 인코딩하여 URL에 포함
+    const encodedAddress = encodeURIComponent(address);
+    
+    // Geocoding API를 사용하여 주소를 좌표로 변환
+    const geocodingUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${apiKey}`;
+    const geocodingResponse = await fetch(geocodingUrl);
+    const geocodingData = await geocodingResponse.json();
+    
+    // 응답 확인
+    if (geocodingData.status !== 'OK' || !geocodingData.results || geocodingData.results.length === 0) {
+      return res.status(404).json({ error: '주소를 찾을 수 없습니다.' });
+    }
+    
+    // 첫 번째 결과에서 Place ID 추출
+    const placeId = geocodingData.results[0].place_id;
+    
+    res.json({ placeId });
+  } catch (error) {
+    console.error('Geocoding error:', error);
+    res.status(500).json({ 
+      error: '지오코딩 실패',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 

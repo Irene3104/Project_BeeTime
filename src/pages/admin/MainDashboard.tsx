@@ -276,7 +276,7 @@ export const AdminDashboard = () => {
                             <h2 className="font-montserrat text-[18px] font-semibold">Locations</h2>
                     </div>
                     <div className="bg-[#DDC5F9]/50 rounded-lg py-4">
-                        <div className="space-y-4 p-4   ">
+                        <div className="space-y-4 p-4 max-h-[300px] overflow-y-auto">
                             {dashboardData.locations.map((location, index) => (
                                 <div key={index} className="text-[16px] text-[#333] font-semibold font-montserrat p-[8px]">
                                 • {location.name}

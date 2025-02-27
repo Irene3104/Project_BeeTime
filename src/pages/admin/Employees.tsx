@@ -23,7 +23,8 @@ export const Employees = () => {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [isSortAscending, setIsSortAscending] = useState(true);
-
+  const [isLoading, setIsLoading] = useState(true);
+  
   useEffect(() => {
     fetchEmployees();
     fetchLocations();
@@ -177,13 +178,6 @@ export const Employees = () => {
             columns={employeeColumns}
             filename="employees"
           />
-          {/* <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 text-[#A18206] font-montserrat"
-          >
-            <span>Add</span>
-            <img src={adminIconAdd} alt="add" className="w-[13px] h-[13px]" />
-          </button> */}
         </div>
 
         {/* 검색 및 정렬 영역 */}
@@ -253,7 +247,7 @@ export const Employees = () => {
         <div className="mt-6 md:mt-[30px] overflow-x-auto">
           <table className="w-full min-w-[640px]">
             <thead>
-              <tr className="bg-[#FFE26C] border-b border-t내">
+              <tr className="bg-[#FFE26C] border-b border-t">
                 <th className="px-6 py-4 text-left font-montserrat">Name</th>
                 <th className="px-6 py-4 text-left font-montserrat">Email</th>
                 <th className="px-6 py-4 text-left font-montserrat">Title</th>
