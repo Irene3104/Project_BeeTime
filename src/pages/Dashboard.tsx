@@ -14,6 +14,46 @@ import CircleBg from '../assets/circle_bg.svg';
 import { getCurrentNSWTime, formatNSWTime, formatNSWDate } from '../utils/dateTime';
 import { QRScanner } from '../components/QRScanner';
 
+// Helper function to get current user ID
+const getCurrentUserId = (): string | null => {
+  // Try to get user from localStorage or sessionStorage
+  const userStr = localStorage.getItem('user') || sessionStorage.getItem('user');
+  if (userStr) {
+    try {
+      const user = JSON.parse(userStr);
+      return user.id || null;
+    } catch (e) {
+      console.error("Error parsing user data:", e);
+    }
+  }
+  
+  // If user object not found, try to extract from token
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+  if (token) {
+    try {
+      // Simple JWT parsing (not secure but works for basic extraction)
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      
+      const payload = JSON.parse(jsonPayload);
+      return payload.id || null;
+    } catch (e) {
+      console.error("Error extracting user ID from token:", e);
+    }
+  }
+  
+  return null;
+};
+
+// Helper function to get user-specific localStorage key
+const getUserStorageKey = (key: string): string => {
+  const userId = getCurrentUserId();
+  return userId ? `${key}_${userId}` : key;
+};
+
 export const Dashboard = () => {
   // Dashboard component for time tracking
   const navigate = useNavigate();
@@ -23,6 +63,14 @@ export const Dashboard = () => {
   const [loading, setLoading] = useState<'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut' | null>(null);
   const [lastAction, setLastAction] = useState<{ type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut'; time: string } | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Set user ID on component mount
+  useEffect(() => {
+    const currentUserId = getCurrentUserId();
+    setUserId(currentUserId);
+    console.log("Current user ID:", currentUserId);
+  }, []);
 
   // 시간 업데이트 (1초마다)
   useEffect(() => {
@@ -45,7 +93,8 @@ export const Dashboard = () => {
   // Load last actions from localStorage
   useEffect(() => {
     try {
-      const storedActions = localStorage.getItem('lastActions');
+      const storageKey = getUserStorageKey('lastActions');
+      const storedActions = localStorage.getItem(storageKey);
       if (storedActions) {
         const actions = JSON.parse(storedActions);
         console.log("Loaded actions from localStorage:", actions);
@@ -74,7 +123,7 @@ export const Dashboard = () => {
     } catch (error) {
       console.error("Error loading actions from localStorage:", error);
     }
-  }, []);
+  }, [userId]); // Re-run when userId changes
 
   // NSW 시간대로 변환
   const nswTime = formatNSWTime(currentTime);
@@ -125,8 +174,9 @@ export const Dashboard = () => {
       
       // Store the action in localStorage to persist between refreshes
       try {
-        const storedActions = localStorage.getItem('lastActions') 
-          ? JSON.parse(localStorage.getItem('lastActions') || '{}') 
+        const storageKey = getUserStorageKey('lastActions');
+        const storedActions = localStorage.getItem(storageKey) 
+          ? JSON.parse(localStorage.getItem(storageKey) || '{}') 
           : {};
         
         storedActions[actionType] = {
@@ -135,7 +185,7 @@ export const Dashboard = () => {
           timestamp: timeToUse.toISOString()
         };
         
-        localStorage.setItem('lastActions', JSON.stringify(storedActions));
+        localStorage.setItem(storageKey, JSON.stringify(storedActions));
         console.log("Stored action in localStorage:", storedActions);
       } catch (error) {
         console.error("Error storing action in localStorage:", error);
@@ -161,7 +211,8 @@ export const Dashboard = () => {
   const getButtonText = (type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut') => {
     // Check if we have stored actions in localStorage
     try {
-      const storedActions = localStorage.getItem('lastActions');
+      const storageKey = getUserStorageKey('lastActions');
+      const storedActions = localStorage.getItem(storageKey);
       if (storedActions) {
         const actions = JSON.parse(storedActions);
         if (actions[type]) {
@@ -211,7 +262,8 @@ export const Dashboard = () => {
     
     // Check localStorage for completed actions
     try {
-      const storedActions = localStorage.getItem('lastActions');
+      const storageKey = getUserStorageKey('lastActions');
+      const storedActions = localStorage.getItem(storageKey);
       if (storedActions) {
         const actions = JSON.parse(storedActions);
         if (actions[type]) return true;
@@ -221,6 +273,16 @@ export const Dashboard = () => {
     }
     
     return false;
+  };
+
+  // Function to reset all actions (for testing)
+  const resetAllActions = () => {
+    if (userId) {
+      const storageKey = getUserStorageKey('lastActions');
+      localStorage.removeItem(storageKey);
+      setLastAction(null);
+      setSuccessMessage('All actions have been reset');
+    }
   };
 
   return (
@@ -359,6 +421,16 @@ export const Dashboard = () => {
                   >
                     {getButtonText('clockOut')}
                   </button>
+              </div>
+              
+              {/* Reset button (for testing) */}
+              <div className="mt-8">
+                <button 
+                  onClick={resetAllActions}
+                  className="text-xs text-gray-500 underline"
+                >
+                  Reset All Actions
+                </button>
               </div>
           </div>
 

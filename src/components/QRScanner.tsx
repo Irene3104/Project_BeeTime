@@ -3,6 +3,46 @@ import { API_URL } from '../config/constants';
 import jsQR from 'jsqr';
 import { api } from '../lib/api';
 
+// Helper function to get current user ID
+const getCurrentUserId = (): string | null => {
+  // Try to get user from localStorage or sessionStorage
+  const userStr = localStorage.getItem('user') || sessionStorage.getItem('user');
+  if (userStr) {
+    try {
+      const user = JSON.parse(userStr);
+      return user.id || null;
+    } catch (e) {
+      console.error("Error parsing user data:", e);
+    }
+  }
+  
+  // If user object not found, try to extract from token
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+  if (token) {
+    try {
+      // Simple JWT parsing (not secure but works for basic extraction)
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      
+      const payload = JSON.parse(jsonPayload);
+      return payload.id || null;
+    } catch (e) {
+      console.error("Error extracting user ID from token:", e);
+    }
+  }
+  
+  return null;
+};
+
+// Helper function to get user-specific localStorage key
+const getUserStorageKey = (key: string): string => {
+  const userId = getCurrentUserId();
+  return userId ? `${key}_${userId}` : key;
+};
+
 // Interface for offline time entries
 interface OfflineTimeEntry {
   id: string;
@@ -27,8 +67,11 @@ interface QRScannerProps {
 // Function to save offline time entry
 const saveOfflineTimeEntry = (entry: Omit<OfflineTimeEntry, 'synced'>) => {
   try {
+    // Get user-specific storage key
+    const storageKey = getUserStorageKey('offlineTimeEntries');
+    
     // Get existing offline entries
-    const offlineEntriesJson = localStorage.getItem('offlineTimeEntries');
+    const offlineEntriesJson = localStorage.getItem(storageKey);
     const offlineEntries: OfflineTimeEntry[] = offlineEntriesJson 
       ? JSON.parse(offlineEntriesJson) 
       : [];
@@ -42,7 +85,7 @@ const saveOfflineTimeEntry = (entry: Omit<OfflineTimeEntry, 'synced'>) => {
     offlineEntries.push(newEntry);
     
     // Save back to localStorage
-    localStorage.setItem('offlineTimeEntries', JSON.stringify(offlineEntries));
+    localStorage.setItem(storageKey, JSON.stringify(offlineEntries));
     
     console.log('Saved offline time entry:', newEntry);
     return newEntry;
@@ -55,7 +98,8 @@ const saveOfflineTimeEntry = (entry: Omit<OfflineTimeEntry, 'synced'>) => {
 // Function to sync offline entries with server
 const syncOfflineEntries = async () => {
   try {
-    const offlineEntriesJson = localStorage.getItem('offlineTimeEntries');
+    const storageKey = getUserStorageKey('offlineTimeEntries');
+    const offlineEntriesJson = localStorage.getItem(storageKey);
     if (!offlineEntriesJson) return;
     
     const offlineEntries: OfflineTimeEntry[] = JSON.parse(offlineEntriesJson);
@@ -99,7 +143,7 @@ const syncOfflineEntries = async () => {
     }
     
     // Update localStorage with synced status
-    localStorage.setItem('offlineTimeEntries', JSON.stringify(updatedEntries));
+    localStorage.setItem(storageKey, JSON.stringify(updatedEntries));
     
     if (syncedCount > 0) {
       console.log(`Successfully synced ${syncedCount} offline entries`);
@@ -157,7 +201,8 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
   // Check for pending offline entries
   const checkPendingOfflineEntries = useCallback(() => {
     try {
-      const offlineEntriesJson = localStorage.getItem('offlineTimeEntries');
+      const storageKey = getUserStorageKey('offlineTimeEntries');
+      const offlineEntriesJson = localStorage.getItem(storageKey);
       if (!offlineEntriesJson) {
         setPendingOfflineEntries(0);
         return 0;
