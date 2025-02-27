@@ -109,7 +109,11 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     const existingTimeRecord = await prisma.timeRecord.findFirst({
       where: {
         userId,
-        date: sydneyStartOfDay
+        date: {
+          // Use proper date comparison for Prisma
+          gte: sydneyStartOfDay,
+          lt: new Date(sydneyStartOfDay.getTime() + 24 * 60 * 60 * 1000) // Add 24 hours
+        }
       }
     });
 
@@ -134,7 +138,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       }
 
       // Convert timestamp to UTC for storage
-      const utcTimestamp = formatInTimeZone(sydneyTime, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+      const utcTimestamp = new Date(sydneyTime);
       
       // Create new time record if none exists
       const timeRecord = await prisma.timeRecord.create({
@@ -168,7 +172,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
 
-      const utcTimestamp = formatInTimeZone(sydneyTime, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+      const utcTimestamp = new Date(sydneyTime);
       
       const breakRecord = await prisma.breakRecord.create({
         data: {
@@ -215,7 +219,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
 
-      const utcTimestamp = formatInTimeZone(sydneyTime, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+      const utcTimestamp = new Date(sydneyTime);
       
       // Update the break record with end time
       const updatedBreak = await prisma.breakRecord.update({
@@ -259,7 +263,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
 
-      const utcTimestamp = formatInTimeZone(sydneyTime, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+      const utcTimestamp = new Date(sydneyTime);
       
       // Update the time record with clock out time
       const updatedTimeRecord = await prisma.timeRecord.update({
@@ -290,6 +294,16 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
 
   } catch (error) {
     console.error('Error in verify-location:', error);
+    
+    // Add more detailed error information
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      console.error('Prisma error code:', error.code);
+      console.error('Prisma error message:', error.message);
+      console.error('Prisma error meta:', error.meta);
+    } else if (error instanceof Prisma.PrismaClientValidationError) {
+      console.error('Prisma validation error:', error.message);
+    }
+    
     return res.status(500).json({
       error: 'Failed to process time entry',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -301,10 +315,17 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
 async function getCurrentTimeRecord(userId: string) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
   return await prisma.timeRecord.findFirst({
     where: {
       userId,
-      date: { gte: today },
+      date: { 
+        gte: today,
+        lt: tomorrow
+      },
       clockOut: { equals: null }
     }
   });
@@ -325,5 +346,47 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 
   return R * c;
 }
+
+// Test endpoint for date handling
+router.get('/test-date', async (req, res) => {
+  try {
+    const now = new Date();
+    const sydneyTime = formatInTimeZone(now, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+    
+    const sydneyDate = new Date(sydneyTime);
+    sydneyDate.setHours(0, 0, 0, 0);
+    
+    const tomorrow = new Date(sydneyDate);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    // Test query to check date handling
+    const testQuery = await prisma.timeRecord.findMany({
+      where: {
+        date: {
+          gte: sydneyDate,
+          lt: tomorrow
+        }
+      },
+      take: 5
+    });
+    
+    res.json({
+      currentTime: {
+        utc: now.toISOString(),
+        sydney: sydneyTime
+      },
+      sydneyDate: sydneyDate.toISOString(),
+      tomorrow: tomorrow.toISOString(),
+      testQueryResults: testQuery.length,
+      testQuerySample: testQuery
+    });
+  } catch (error) {
+    console.error('Error in test-date endpoint:', error);
+    res.status(500).json({
+      error: 'Test failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
 
 export { router as timeEntriesRouter };

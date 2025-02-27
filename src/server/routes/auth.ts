@@ -3,7 +3,7 @@ import { z } from 'zod';
 import  bcrypt from 'bcryptjs';
 import { prisma } from '../db';
 import { validateRequest } from '../middleware/validateRequest';
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import { authenticate } from '../middleware/authenticate';
 import { sendVerificationEmail } from '../services/emailService';
@@ -431,6 +431,173 @@ router.post('/refresh-token', async (req, res) => {
   } catch (error) {
     console.error('Refresh token route error:', error);
     res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+  }
+});
+
+// Comprehensive test endpoint for authentication flow
+router.get('/test-auth-flow', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const results: {
+      headers: {
+        received: string[];
+        authorization: string;
+      };
+      token: {
+        present: boolean;
+        valid: boolean;
+        expired: boolean;
+        decoded: any | null;
+        error: string | null;
+      };
+      user: any | null;
+      environment: string;
+      serverTime: string;
+    } = {
+      headers: {
+        received: Object.keys(req.headers),
+        authorization: authHeader ? 'Present' : 'Missing'
+      },
+      token: {
+        present: false,
+        valid: false,
+        expired: false,
+        decoded: null,
+        error: null
+      },
+      user: null,
+      environment: process.env.NODE_ENV || 'unknown',
+      serverTime: new Date().toISOString()
+    };
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        ...results,
+        error: 'Authentication required',
+        message: 'No authorization header provided or invalid format'
+      });
+    }
+    
+    const token = authHeader.split(' ')[1];
+    results.token.present = true;
+    
+    try {
+      // First try to verify with expiration check
+      const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+      results.token.valid = true;
+      results.token.decoded = {
+        userId: decoded.userId,
+        exp: decoded.exp || 0,
+        iat: decoded.iat || 0,
+        expiresAt: new Date((decoded.exp || 0) * 1000).toISOString(),
+        issuedAt: new Date((decoded.iat || 0) * 1000).toISOString(),
+        timeRemaining: Math.floor(((decoded.exp || 0) * 1000 - Date.now()) / 1000 / 60) + ' minutes'
+      };
+      
+      // Check if user exists
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          locationId: true
+        }
+      });
+      
+      if (user) {
+        results.user = user;
+        
+        // Also get the user's location
+        if (user.locationId) {
+          const location = await prisma.location.findUnique({
+            where: { id: user.locationId },
+            select: {
+              id: true,
+              name: true,
+              placeId: true
+            }
+          });
+          
+          if (location) {
+            results.user.location = location;
+          }
+        }
+      } else {
+        results.token.error = 'User not found';
+      }
+      
+      return res.json({
+        status: 'success',
+        message: 'Authentication flow test completed successfully',
+        results
+      });
+      
+    } catch (tokenError) {
+      // If verification fails, check if it's due to expiration
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string, { ignoreExpiration: true }) as JwtPayload;
+        
+        if ((decoded.exp || 0) * 1000 < Date.now()) {
+          results.token.expired = true;
+          results.token.error = 'Token expired';
+          results.token.decoded = {
+            userId: decoded.userId,
+            exp: decoded.exp || 0,
+            iat: decoded.iat || 0,
+            expiresAt: new Date((decoded.exp || 0) * 1000).toISOString(),
+            issuedAt: new Date((decoded.iat || 0) * 1000).toISOString()
+          };
+          
+          // Try to get user info anyway
+          const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              role: true
+            }
+          });
+          
+          if (user) {
+            results.user = user;
+          }
+          
+          return res.status(401).json({
+            status: 'error',
+            message: 'Token expired',
+            results
+          });
+        }
+        
+        results.token.error = 'Token invalid (not expired)';
+        return res.status(401).json({
+          status: 'error',
+          message: 'Token invalid',
+          results,
+          tokenError: tokenError instanceof Error ? tokenError.message : 'Unknown error'
+        });
+        
+      } catch (decodeError) {
+        results.token.error = 'Token malformed';
+        return res.status(401).json({
+          status: 'error',
+          message: 'Token malformed',
+          results,
+          tokenError: decodeError instanceof Error ? decodeError.message : 'Unknown error'
+        });
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error in test-auth-flow endpoint:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 

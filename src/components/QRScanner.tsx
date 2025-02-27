@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { API_URL } from '../config/constants';
 import jsQR from 'jsqr';
-import { api } from '../lib/api';
+import { api, diagnostics } from '../lib/api';
+import { useRouter } from 'next/router';
+import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/button';
 
 // Helper function to get current user ID
 const getCurrentUserId = (): string | null => {
@@ -962,6 +965,31 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     clockOut: 'Clock Out'
   };
 
+  const runDiagnostics = async () => {
+    console.log('Running diagnostics...');
+    
+    // Test authentication
+    const authResult = await diagnostics.testAuth();
+    console.log('Auth test result:', authResult);
+    
+    // Test date handling
+    const dateResult = await diagnostics.testDateHandling();
+    console.log('Date test result:', dateResult);
+    
+    // Show results in an alert since we don't have toast
+    alert(`
+      Diagnostic Results:
+      
+      Auth Test: ${authResult.success ? '✅ Success' : '❌ Failed'}
+      ${!authResult.success ? 'Error: ' + JSON.stringify(authResult.error) : ''}
+      
+      Date Test: ${dateResult.success ? '✅ Success' : '❌ Failed'}
+      ${!dateResult.success ? 'Error: ' + JSON.stringify(dateResult.error) : ''}
+      
+      See console for full details
+    `);
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white p-4 rounded-lg w-full max-w-md">
@@ -1114,13 +1142,21 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
               
               {/* Debug test button */}
               {debugMode && (
-                <button 
-                  onClick={simulateSuccessfulScan}
-                  className="w-full mt-2 bg-purple-500 hover:bg-purple-600 text-white py-2 px-4 rounded"
-                  disabled={isProcessing}
-                >
-                  Test Scan (Debug)
-                </button>
+                <>
+                  <button 
+                    onClick={simulateSuccessfulScan}
+                    className="w-full mt-2 bg-purple-500 hover:bg-purple-600 text-white py-2 px-4 rounded"
+                    disabled={isProcessing}
+                  >
+                    Test Scan (Debug)
+                  </button>
+                  <button 
+                    onClick={runDiagnostics}
+                    className="w-full mt-2 bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded text-xs"
+                  >
+                    Run Diagnostics
+                  </button>
+                </>
               )}
             </div>
           </>

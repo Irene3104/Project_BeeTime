@@ -99,6 +99,26 @@ app.post('/debug/validate-token', (req, res) => {
   }
 });
 
+// Add a simple diagnostic endpoint that doesn't require authentication
+app.get('/api/diagnostics/server-status', (req, res) => {
+  try {
+    res.json({
+      status: 'online',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'unknown',
+      headers: {
+        received: Object.keys(req.headers),
+      }
+    });
+  } catch (error) {
+    console.error('Error in server-status endpoint:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // Catch-all route handler for undefined routes
 app.use((req, res) => {
   console.log(`[404] Received request for: ${req.method} ${req.url}`);
