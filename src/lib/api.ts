@@ -80,7 +80,7 @@ export const api = {
   
   timeEntries: {
     getAll: async () => {
-      const response = await fetch(`${API_URL}/time-entries`, {
+      const response = await fetch(`${API_URL}/api/time-entries`, {
         headers: getAuthHeader(),
       });
       
@@ -93,7 +93,7 @@ export const api = {
     },
     
     create: async (data: any) => {
-      const response = await fetch(`${API_URL}/time-entries`, {
+      const response = await fetch(`${API_URL}/api/time-entries`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(data),
@@ -108,7 +108,7 @@ export const api = {
     },
     
     update: async (id: string, data: any) => {
-      const response = await fetch(`${API_URL}/time-entries/${id}`, {
+      const response = await fetch(`${API_URL}/api/time-entries/${id}`, {
         method: 'PATCH',
         headers: getAuthHeader(),
         body: JSON.stringify(data),
@@ -130,7 +130,7 @@ export const api = {
       type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut';
       timestamp: string;
     }) => {
-      const response = await fetch(`${API_URL}/time-entries/verify-location`, {
+      const response = await fetch(`${API_URL}/api/time-entries/verify-location`, {
         method: 'POST',
         headers: getAuthHeader(),
         body: JSON.stringify(data),

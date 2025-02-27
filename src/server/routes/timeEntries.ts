@@ -97,6 +97,7 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     
     console.log('Received timestamp (UTC):', timestamp);
     console.log('Sydney time:', sydneyTime);
+    console.log('Request type:', type);
 
     // Get start of day in Sydney time
     const sydneyStartOfDay = new Date(sydneyTime);
@@ -112,11 +113,23 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       }
     });
 
-    if (type === 'CLOCK_IN') {
+    if (type === 'clockIn') {
       if (existingTimeRecord) {
         return res.status(400).json({
           error: 'Already clocked in for today',
           details: 'You already have a time record for today'
+        });
+      }
+
+      // Find the location by placeId
+      const location = await prisma.location.findUnique({
+        where: { placeId }
+      });
+
+      if (!location) {
+        return res.status(404).json({
+          error: 'Location not found',
+          details: 'The specified location does not exist'
         });
       }
 
@@ -146,8 +159,14 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
     }
 
     // For BREAK_START, similar conversion needed
-    if (type === 'BREAK_START') {
-      // ... existing break start checks ...
+    if (type === 'breakStart') {
+      // Check if there's an existing time record
+      if (!existingTimeRecord) {
+        return res.status(400).json({
+          error: 'No active time record',
+          details: 'You need to clock in first before starting a break'
+        });
+      }
 
       const utcTimestamp = formatInTimeZone(sydneyTime, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
       
@@ -168,7 +187,106 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
       });
     }
 
-    // ... rest of the code ...
+    // For breakEnd
+    if (type === 'breakEnd') {
+      // Check if there's an existing time record
+      if (!existingTimeRecord) {
+        return res.status(400).json({
+          error: 'No active time record',
+          details: 'You need to clock in first before ending a break'
+        });
+      }
+
+      // Find the most recent break that hasn't ended yet
+      const activeBreak = await prisma.breakRecord.findFirst({
+        where: {
+          timeRecordId: existingTimeRecord.id,
+          endTime: null
+        },
+        orderBy: {
+          startTime: 'desc'
+        }
+      });
+
+      if (!activeBreak) {
+        return res.status(400).json({
+          error: 'No active break',
+          details: 'You need to start a break before ending it'
+        });
+      }
+
+      const utcTimestamp = formatInTimeZone(sydneyTime, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+      
+      // Update the break record with end time
+      const updatedBreak = await prisma.breakRecord.update({
+        where: { id: activeBreak.id },
+        data: { endTime: utcTimestamp }
+      });
+
+      return res.json({
+        success: true,
+        message: 'Break ended successfully',
+        data: {
+          ...updatedBreak,
+          startTime: toNSWTime(updatedBreak.startTime),
+          endTime: toNSWTime(updatedBreak.endTime!)
+        }
+      });
+    }
+
+    // For clockOut
+    if (type === 'clockOut') {
+      // Check if there's an existing time record
+      if (!existingTimeRecord) {
+        return res.status(400).json({
+          error: 'No active time record',
+          details: 'You need to clock in first before clocking out'
+        });
+      }
+
+      // Check if there are any active breaks
+      const activeBreak = await prisma.breakRecord.findFirst({
+        where: {
+          timeRecordId: existingTimeRecord.id,
+          endTime: null
+        }
+      });
+
+      if (activeBreak) {
+        return res.status(400).json({
+          error: 'Active break',
+          details: 'You need to end your break before clocking out'
+        });
+      }
+
+      const utcTimestamp = formatInTimeZone(sydneyTime, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+      
+      // Update the time record with clock out time
+      const updatedTimeRecord = await prisma.timeRecord.update({
+        where: { id: existingTimeRecord.id },
+        data: { 
+          clockOut: utcTimestamp,
+          status: 'completed'
+        }
+      });
+
+      return res.json({
+        success: true,
+        message: 'Clocked out successfully',
+        data: {
+          ...updatedTimeRecord,
+          clockIn: toNSWTime(updatedTimeRecord.clockIn),
+          clockOut: toNSWTime(updatedTimeRecord.clockOut!),
+          date: toNSWTime(updatedTimeRecord.date)
+        }
+      });
+    }
+
+    // If we get here, the action type wasn't handled
+    return res.status(400).json({
+      error: 'Invalid action type',
+      details: `Action type '${type}' is not supported`
+    });
 
   } catch (error) {
     console.error('Error in verify-location:', error);
