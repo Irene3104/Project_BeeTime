@@ -143,7 +143,8 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
           fileName: fileName,
           fileData: excelBuffer,
           locationId: locationId ? parseInt(locationId) : null,
-          creatorId: req.user.id
+          creatorId: req.user.id,
+          updatedAt: new Date()
         }
       });
       
@@ -158,7 +159,9 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
         fileName: report.fileName,
         locationId: report.locationId,
         locationName: locationName,
-        createdAt: report.createdAt.toISOString()
+        createdAt: report.createdAt.toISOString(),
+        updatedAt: report.updatedAt.toISOString()
+
       });
     } catch (error: any) {
       console.error('[Report API] Error in Excel generation:', error);
@@ -194,7 +197,8 @@ router.get('/reports', authenticate, isAdmin, async (req, res) => {
       endDate: report.endDate.toISOString().split('T')[0],
       fileName: report.fileName,
       locationId: report.locationId,
-      createdAt: report.createdAt.toISOString()
+      createdAt: report.createdAt.toISOString(),
+      updatedAt: report.updatedAt.toISOString()
     }));
     
     res.json(formattedReports);
