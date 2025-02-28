@@ -48,6 +48,10 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
     console.log('[Report API] Report generation started');
     const { startDate, endDate, locationId } = req.body;
     
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
     // 날짜 문자열로 변환 (DD-MM-YYYY 형식으로 통일)
     const formattedStartDate = format(new Date(startDate), 'dd-MM-yyyy');
     const formattedEndDate = format(new Date(endDate), 'dd-MM-yyyy');
@@ -99,7 +103,6 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
     });
 
     console.log(`[Report API] Found ${timeRecords.length} records`);
-    console.log('[Report API] First few records:', timeRecords.slice(0, 3));
     
     if (timeRecords.length === 0) {
       return res.status(404).json({ error: 'No records found for the specified period' });
@@ -121,45 +124,55 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
     }
 
     console.log('[Report API] Calling ReportService.generateAttendanceReport');
-    const excelBuffer = await ReportService.generateAttendanceReport(timeRecords);
-    console.log('[Report API] Excel buffer generated');
+    try {
+      const excelBuffer = await ReportService.generateAttendanceReport(timeRecords);
+      console.log('[Report API] Excel buffer generated, size:', excelBuffer.byteLength, 'bytes');
 
-    // 파일명 생성
-    const fileName = `${locationName}_Attendance Report_${formattedStartDate} to ${formattedEndDate}.xlsx`;
-    
-    // 리포트 정보를 데이터베이스에 저장
-    const reportTitle = `${locationName} Attendance Report ${formattedStartDate} to ${formattedEndDate}`;
-    const report = await prisma.report.create({
-      data: {
-        title: reportTitle,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        fileName: fileName,
-        fileData: Buffer.from(excelBuffer),
-        locationId: locationId ? parseInt(locationId) : null,
-        creatorId: req.user.id,
-        updatedAt: new Date()
-      }
-    });
-    
-    console.log(`[Report API] Report saved to database with ID: ${report.id}`);
-    
-    // 생성된 리포트 정보 반환
-    res.status(201).json({
-      id: report.id,
-      title: report.title,
-      startDate: report.startDate.toISOString().split('T')[0],
-      endDate: report.endDate.toISOString().split('T')[0],
-      fileName: report.fileName,
-      locationId: report.locationId,
-      locationName: locationName,
-      createdAt: report.createdAt.toISOString(),
-      updatedAt: report.updatedAt.toISOString()
-    });
-    
-  } catch (error) {
+      // 파일명 생성
+      const fileName = `${locationName}_Attendance Report_${formattedStartDate} to ${formattedEndDate}.xlsx`;
+      
+      // 리포트 정보를 데이터베이스에 저장
+      const reportTitle = `${locationName} Attendance Report ${formattedStartDate} to ${formattedEndDate}`;
+      
+      // Ensure the buffer is properly stored
+      const report = await prisma.report.create({
+        data: {
+          title: reportTitle,
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          fileName: fileName,
+          fileData: excelBuffer,
+          locationId: locationId ? parseInt(locationId) : null,
+          creatorId: req.user.id
+        }
+      });
+      
+      console.log(`[Report API] Report saved to database with ID: ${report.id}`);
+      
+      // 생성된 리포트 정보 반환
+      res.status(201).json({
+        id: report.id,
+        title: report.title,
+        startDate: report.startDate.toISOString().split('T')[0],
+        endDate: report.endDate.toISOString().split('T')[0],
+        fileName: report.fileName,
+        locationId: report.locationId,
+        locationName: locationName,
+        createdAt: report.createdAt.toISOString()
+      });
+    } catch (error: any) {
+      console.error('[Report API] Error in Excel generation:', error);
+      return res.status(500).json({ 
+        error: 'Failed to generate Excel report', 
+        details: error.message 
+      });
+    }
+  } catch (error: any) {
     console.error('[Report API] Error generating report:', error);
-    res.status(500).json({ error: 'Failed to generate report' });
+    res.status(500).json({ 
+      error: 'Failed to generate report',
+      details: error.message
+    });
   }
 });
 
@@ -174,7 +187,7 @@ router.get('/reports', authenticate, isAdmin, async (req, res) => {
     });
     
     // 데이터베이스 오류 없이 기본 데이터만 반환
-    const formattedReports = reports.map(report => ({
+    const formattedReports = reports.map((report: any) => ({
       id: report.id,
       title: report.title,
       startDate: report.startDate.toISOString().split('T')[0],
@@ -242,10 +255,16 @@ router.get('/reports/:id/download', authenticate, isAdmin, async (req, res) => {
     
     // 응답 헤더 설정
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=${report.fileName}`);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(report.fileName)}"`);
+    
+    // Ensure the fileData is properly handled as a Buffer
+    const buffer = Buffer.from(report.fileData);
+    
+    // Log the buffer size for debugging
+    console.log(`[Report API] Sending report ${reportId} with buffer size: ${buffer.length} bytes`);
     
     // 저장된 파일 데이터 전송
-    res.send(report.fileData);
+    res.send(buffer);
   } catch (error) {
     console.error('[Report API] Error downloading report:', error);
     res.status(500).json({ error: 'Failed to download report' });

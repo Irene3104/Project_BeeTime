@@ -202,8 +202,21 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
     
     // Cleanup on unmount
     return () => {
-      if (canvasRef.current && document.body.contains(canvasRef.current)) {
-        document.body.removeChild(canvasRef.current);
+      try {
+        // More robust cleanup with additional checks
+        if (canvasRef.current) {
+          // Check if the canvas is actually in the document before trying to remove it
+          if (document.body.contains(canvasRef.current)) {
+            document.body.removeChild(canvasRef.current);
+            console.log("Removed canvas element from document body");
+          } else {
+            console.log("Canvas element was not found in document body during cleanup");
+          }
+          // Clear the reference regardless
+          canvasRef.current = null;
+        }
+      } catch (error) {
+        console.error("Error during canvas cleanup:", error);
       }
     };
   }, []);
@@ -720,26 +733,49 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
 
   // Stop scanning and release resources
   const stopScanning = useCallback(() => {
-    // Stop animation frame
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
-    
-    // Stop media stream
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    
-    // Clear video source
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
+    try {
+      // Stop animation frame
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+      
+      // Stop scanner interval if it exists
+      if (scannerIntervalRef.current) {
+        clearInterval(scannerIntervalRef.current);
+        scannerIntervalRef.current = null;
+      }
+      
+      // Stop media stream
+      if (streamRef.current) {
+        const tracks = streamRef.current.getTracks();
+        tracks.forEach(track => {
+          try {
+            track.stop();
+          } catch (e) {
+            console.error("Error stopping track:", e);
+          }
+        });
+        streamRef.current = null;
+      }
+      
+      // Clear video source safely
+      if (videoRef.current) {
+        try {
+          videoRef.current.pause();
+          videoRef.current.srcObject = null;
+        } catch (e) {
+          console.error("Error clearing video source:", e);
+        }
+      }
+    } catch (error) {
+      console.error("Error in stopScanning:", error);
     }
   }, []);
   
   // jsQR scanning loop
   const scanQRCode = useCallback(() => {
+    // Check if component is still mounted and all refs are available
     if (!videoRef.current || !canvasRef.current || !streamRef.current) {
       console.log("Missing refs for scanning:", {
         video: !!videoRef.current,
@@ -747,25 +783,33 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
         stream: !!streamRef.current
       });
       
-      // Try again in a moment if video isn't ready
-      setTimeout(() => {
-        if (videoRef.current && streamRef.current) {
-          scanQRCode();
-        }
-      }, 500);
+      // Try again in a moment if video isn't ready, but only if we still have references
+      if (videoRef.current || streamRef.current) {
+        setTimeout(() => {
+          // Check again before recursing
+          if (videoRef.current && streamRef.current) {
+            scanQRCode();
+          } else {
+            console.log("Component unmounted, stopping scan loop");
+          }
+        }, 500);
+      } else {
+        console.log("Component appears to be unmounted, not continuing scan loop");
+      }
       return;
     }
     
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    
-    if (!ctx) {
-      console.error("Failed to get canvas context");
-      return;
-    }
     
     try {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      
+      if (!ctx) {
+        console.error("Failed to get canvas context");
+        return;
+      }
+      
       // Check if video is ready
       if (video.readyState !== video.HAVE_ENOUGH_DATA) {
         console.log("Video not ready yet, waiting...");
@@ -796,11 +840,23 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       }
     } catch (error) {
       console.error("Error in QR scanning loop:", error);
+      // If we hit an error, wait a bit before continuing to avoid rapid error loops
+      setTimeout(() => {
+        // Check if component is still mounted before continuing
+        if (videoRef.current && streamRef.current) {
+          animationRef.current = requestAnimationFrame(scanQRCode);
+        }
+      }, 1000);
+      return;
     }
     
-    // Continue scanning
-    animationRef.current = requestAnimationFrame(scanQRCode);
-  }, []);
+    // Continue scanning only if component is still mounted
+    if (videoRef.current && streamRef.current) {
+      animationRef.current = requestAnimationFrame(scanQRCode);
+    } else {
+      console.log("Component unmounted during scan loop, stopping");
+    }
+  }, [processQrCode]);
   
   // Start camera and scanning
   const startScanning = useCallback(async () => {
@@ -826,34 +882,60 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       
       console.log("Requesting camera with constraints:", constraints);
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      // Check if component is still mounted by verifying videoRef
+      if (!videoRef.current) {
+        console.log("Component unmounted during camera initialization, cleaning up");
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      
       streamRef.current = stream;
       
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          console.log("Video metadata loaded, playing video");
-          videoRef.current?.play().catch(err => {
-            console.error("Error playing video:", err);
-          });
-        };
-        
-        // Fallback if onloadedmetadata doesn't fire
-        setTimeout(() => {
-          if (videoRef.current && videoRef.current.paused) {
-            console.log("Fallback: trying to play video after timeout");
-            videoRef.current.play().catch(err => {
-              console.error("Error playing video in fallback:", err);
-            });
-          }
-        }, 1000);
+        try {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => {
+            console.log("Video metadata loaded, playing video");
+            if (videoRef.current) {
+              videoRef.current.play().catch(err => {
+                console.error("Error playing video:", err);
+              });
+            }
+          };
+          
+          // Fallback if onloadedmetadata doesn't fire
+          setTimeout(() => {
+            if (videoRef.current && videoRef.current.paused) {
+              console.log("Fallback: trying to play video after timeout");
+              videoRef.current.play().catch(err => {
+                console.error("Error playing video in fallback:", err);
+              });
+            }
+          }, 1000);
+        } catch (videoErr) {
+          console.error("Error setting up video element:", videoErr);
+          // Clean up the stream if we couldn't set it up properly
+          stream.getTracks().forEach(track => track.stop());
+          setError('Failed to initialize video. Please try again.');
+          return;
+        }
       } else {
         console.error("Video element not found");
+        // Clean up the stream if video element is missing
+        stream.getTracks().forEach(track => track.stop());
+        return;
       }
       
       // Start jsQR scanning loop after a short delay to ensure video is ready
       setTimeout(() => {
-        console.log("Starting QR scanning loop");
-        scanQRCode();
+        // Check again if component is still mounted
+        if (videoRef.current && streamRef.current) {
+          console.log("Starting QR scanning loop");
+          scanQRCode();
+        } else {
+          console.log("Component unmounted before starting scan loop");
+        }
       }, 1500);
     } catch (err) {
       console.error('Error starting camera:', err);
