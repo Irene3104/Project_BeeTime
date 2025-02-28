@@ -137,7 +137,8 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
         fileName: fileName,
         fileData: Buffer.from(excelBuffer),
         locationId: locationId ? parseInt(locationId) : null,
-        creatorId: req.user.id
+        creatorId: req.user.id,
+        updatedAt: new Date()
       }
     });
     
@@ -152,7 +153,8 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
       fileName: report.fileName,
       locationId: report.locationId,
       locationName: locationName,
-      createdAt: report.createdAt.toISOString()
+      createdAt: report.createdAt.toISOString(),
+      updatedAt: report.updatedAt.toISOString()
     });
     
   } catch (error) {
