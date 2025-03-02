@@ -144,7 +144,7 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
           fileData: excelBuffer,
           locationId: locationId ? parseInt(locationId) : null,
           creatorId: req.user.id,
-          updatedAt: new Date()
+          // updatedAt: new Date()
         }
       });
       

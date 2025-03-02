@@ -63,11 +63,20 @@ model TimeRecord {
   status         String   @db.VarChar(50)
   note           String?
   createdAt      DateTime @default(now()) @db.Timestamp(6)
-  breakMinutes   Int      @default(0)
-  breakEndTime   String?  @db.VarChar(5)
-  breakStartTime String?  @db.VarChar(5)
-  clockInTime    String   @db.VarChar(5)
+  clockInTime    String?   @db.VarChar(5)
   clockOutTime   String?  @db.VarChar(5)
+
+  // 첫 번째 break
+  breakStartTime1 String?  @db.VarChar(5)
+  breakEndTime1   String?  @db.VarChar(5)
+  // 두 번째 break
+  breakStartTime2 String?  @db.VarChar(5)
+  breakEndTime2   String?  @db.VarChar(5)
+  // 세 번째 break
+  breakStartTime3 String?  @db.VarChar(5)
+  breakEndTime3   String?  @db.VarChar(5)
+
+  breakMinutes   Int      @default(0)
   workingHours   Float    @default(0)
   date           String   @db.VarChar(10)
   location       Location @relation(fields: [locationId], references: [id])
@@ -111,7 +120,7 @@ model Report {
   locationId Int?
   creatorId  String
   createdAt  DateTime  @default(now()) @db.Timestamp(6)
-  updatedAt  DateTime  @db.Timestamp(6)
+  updatedAt  DateTime  @updatedAt @db.Timestamp(6) 
   User       User      @relation(fields: [creatorId], references: [id])
   Location   Location? @relation(fields: [locationId], references: [id])
 

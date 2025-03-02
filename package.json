@@ -10,11 +10,11 @@
     "preview": "vite preview",
     "server": "NODE_NO_WARNINGS=1 tsx src/server/index.ts",
     "build-server": "npx tsc --project tsconfig.server.json",
-    "init-workplaces": "tsx prisma/workplace-data.ts",
-    "db-admin": "tsx prisma/admin.ts",
-    "generate-qr": "tsx scripts/generate-qr.ts",
+    "init-workplaces": "tsx scripts/workplace-data.ts",
+    "init-admin": "tsx scripts/admin.ts",
+    "init-timerecords":  "tsx scripts/generateTestData.ts",
     "add-location": "tsx scripts/add-location.ts",
-    "test-timerecord":  "tsx scripts/generateTestData.ts",
+    "generate-qr": "tsx scripts/generate-qr.ts",
     "start": "NODE_ENV=production NODE_NO_WARNINGS=1 tsx src/server/index.ts"
   },
   "dependencies": {

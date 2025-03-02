@@ -48,23 +48,23 @@ async function main() {
       company: 'Juncafe Opera Pty Ltd',
       address: 'Broadway Shopping Centre, Bay Street, Broadway NSW 2007'
     }),
-    getPlaceIdAndCreate({
-      name: 'Baskin Robbins',
-      branch: 'Circular Quay',
-      company: 'Ice Opera Pty Ltd',
-      address: '61-63 Macquarie Street, Sydney NSW 2000'
-    }),
-    getPlaceIdAndCreate({
-      name: 'Baskin Robbins',
-      branch: 'Manly',
-      company: 'Ice Opera Pty Ltd',
-      address: '53 East Esplanade, Manly NSW 2095'
-    }),
-    getPlaceIdAndCreate({
-      name: 'Sushi Roll',
-      company: 'Top Ryde Sushiroll Pty Ltd',
-      address: 'Top Ryde City Shopping Centre, Devlin Street, Ryde NSW 2112'
-    }),
+    // getPlaceIdAndCreate({
+    //   name: 'Baskin Robbins',
+    //   branch: 'Circular Quay',
+    //   company: 'Ice Opera Pty Ltd',
+    //   address: '61-63 Macquarie Street, Sydney NSW 2000'
+    // }),
+    // getPlaceIdAndCreate({
+    //   name: 'Baskin Robbins',
+    //   branch: 'Manly',
+    //   company: 'Ice Opera Pty Ltd',
+    //   address: '53 East Esplanade, Manly NSW 2095'
+    // }),
+    // getPlaceIdAndCreate({
+    //   name: 'Sushi Roll',
+    //   company: 'Top Ryde Sushiroll Pty Ltd',
+    //   address: 'Top Ryde City Shopping Centre, Devlin Street, Ryde NSW 2112'
+    // }),
     getPlaceIdAndCreate({
       name: 'Home',
       company: 'Stephen & Irene Co',
