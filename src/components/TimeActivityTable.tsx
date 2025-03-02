@@ -1,82 +1,278 @@
-import React from 'react';
-import { TimeActivityRow } from '../types';
+import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
+import { API_URL } from '../config/constants';
+import './TimeActivityTable.css';
 
-interface TimeActivityTableProps {
-  data: TimeActivityRow[];
+interface TimeRecord {
+  id: number;
+  date: Date | string;
+  checkIn: string | null;
+  breakIn1: string | null;
+  breakOut1: string | null;
+  breakIn2: string | null;
+  breakOut2: string | null;
+  breakIn3: string | null;
+  breakOut3: string | null;
+  checkOut: string | null;
+  workingHours: string | null;
+  breakMinutes: number | null;
 }
 
-export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ data }) => {
-  // 근무 시간 계산 함수
-  const calculateWorkHours = (row: TimeActivityRow): string => {
-    if (!row.checkIn || !row.checkOut) return 'N/A';
-    
-    // 시간 문자열을 분으로 변환
-    const timeToMinutes = (time: string): number => {
-      const [hours, minutes] = time.split(':').map(Number);
-      return hours * 60 + minutes;
-    };
+interface TimeActivityTableProps {
+  timeRecords: TimeRecord[];
+  onRecordUpdate: (record: any) => void;
+}
 
-    const clockInMinutes = timeToMinutes(row.checkIn);
-    const clockOutMinutes = timeToMinutes(row.checkOut);
-    
-    // 휴식 시간 계산
-    let breakMinutes = 0;
-    if (row.breakIn1 && row.breakOut1) {
-      const breakStartMinutes = timeToMinutes(row.breakIn1);
-      const breakEndMinutes = timeToMinutes(row.breakOut1);
-      breakMinutes += breakEndMinutes - breakStartMinutes;
-    }
-    if (row.breakIn2 && row.breakOut2) {
-      const breakStartMinutes = timeToMinutes(row.breakIn2);
-      const breakEndMinutes = timeToMinutes(row.breakOut2);
-      breakMinutes += breakEndMinutes - breakStartMinutes;
-    }
-    if (row.breakIn3 && row.breakOut3) {
-      const breakStartMinutes = timeToMinutes(row.breakIn3);
-      const breakEndMinutes = timeToMinutes(row.breakOut3);
-      breakMinutes += breakEndMinutes - breakStartMinutes;
-    }
+export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecords, onRecordUpdate }) => {
+  const [selectedCell, setSelectedCell] = useState<{
+    recordId: number;
+    field: string;
+    fieldName: string;
+  } | null>(null);
+  const [showExtendedBreaks, setShowExtendedBreaks] = useState(false);
 
-    // 총 근무 시간 계산
-    const totalWorkMinutes = clockOutMinutes - clockInMinutes - breakMinutes;
-    const workHours = totalWorkMinutes / 60;
-    
-    return `${workHours.toFixed(1)} hr`;
+  // 데이터가 변경될 때마다 콘솔에 출력
+  useEffect(() => {
+    console.log('TimeRecords updated:', timeRecords);
+  }, [timeRecords]);
+
+  const handleSaveTime = async (time: string) => {
+    if (!selectedCell) return;
+
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      
+      // 레코드 ID가 날짜 형식인 경우(새 레코드)
+      if (selectedCell.recordId > 20000000 || !selectedCell.recordId) {
+        // 날짜 형식에서 실제 날짜 추출
+        let dateStr;
+        
+        if (selectedCell.recordId > 20000000) {
+          const year = Math.floor(selectedCell.recordId / 10000);
+          const month = Math.floor((selectedCell.recordId % 10000) / 100) - 1; // 0-based month
+          const day = selectedCell.recordId % 100;
+          const recordDate = new Date(year, month, day);
+          dateStr = format(recordDate, 'yyyy-MM-dd');
+        } else {
+          // 현재 선택된 날짜의 레코드를 찾아서 날짜 정보 가져오기
+          const record = timeRecords.find(r => r.id === selectedCell.recordId);
+          if (record) {
+            dateStr = format(new Date(record.date), 'yyyy-MM-dd');
+          } else {
+            dateStr = format(new Date(), 'yyyy-MM-dd'); // 기본값
+          }
+        }
+        
+        console.log('Creating new record for date:', dateStr);
+        console.log('Field:', selectedCell.field);
+        console.log('Time:', time);
+        
+        // 새 레코드 생성 API 호출
+        const requestData = {
+          date: dateStr,
+          [selectedCell.field]: time,
+          status: 'ACTIVE'  // 필수 status 필드 추가
+        };
+        
+        console.log('Sending data:', JSON.stringify(requestData));
+        
+        const response = await fetch(`${API_URL}/timeRecords`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(requestData)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null) || await response.text();
+          console.error('Server response:', errorData);
+          throw new Error(`Failed to create time record: ${response.status} ${response.statusText}`);
+        }
+        
+        const newRecord = await response.json();
+        console.log('Successfully created record:', newRecord);
+        
+        // 부모 컴포넌트에 업데이트 알림
+        if (typeof onRecordUpdate === 'function') {
+          onRecordUpdate(newRecord);
+        } else {
+          console.error('onRecordUpdate is not a function:', onRecordUpdate);
+        }
+      } else {
+        // 기존 레코드 업데이트
+        console.log('Updating record ID:', selectedCell.recordId);
+        console.log('Field:', selectedCell.field);
+        console.log('Time:', time);
+        
+        const response = await fetch(`${API_URL}/timeRecords/${selectedCell.recordId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            [selectedCell.field]: time  // 필드명을 직접 사용
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null) || await response.text();
+          console.error('Server response:', errorData);
+          throw new Error(`Failed to update time record: ${response.status} ${response.statusText}`);
+        }
+        
+        const updatedRecord = await response.json();
+        console.log('Successfully updated record:', updatedRecord);
+        
+        // 부모 컴포넌트에 업데이트 알림
+        if (typeof onRecordUpdate === 'function') {
+          onRecordUpdate(updatedRecord);
+        } else {
+          console.error('onRecordUpdate is not a function:', onRecordUpdate);
+        }
+      }
+      
+      setSelectedCell(null);
+    } catch (error) {
+      console.error('Error saving time:', error);
+      throw error;
+    }
+  };
+
+  const handleCellClick = (recordId: number, field: string, fieldName: string) => {
+    setSelectedCell({ recordId, field, fieldName });
+  };
+
+  const formatDate = (date: Date | string) => {
+    if (!date) return '';
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    return format(dateObj, 'MM/dd');
+  };
+
+  const toggleExtendedBreaks = () => {
+    setShowExtendedBreaks(!showExtendedBreaks);
   };
 
   return (
-    <div className="overflow-y-auto max-h-[calc(100vh-280px)] overflow-x-auto">
-      <table className="w-full border-collapse min-w-[300px]">
-        <thead className="sticky top-0">
-          <tr className="bg-[#F5E9D7] text-[#B17F4A]">
-            <th className="p-2 border border-[#E5D5B5]">Date</th>
-            <th className="p-2 border border-[#E5D5B5]">Clock In</th>
-            <th className="p-2 border border-[#E5D5B5]">Break 1 Start</th>
-            <th className="p-2 border border-[#E5D5B5]">Break 1 End</th>
-            <th className="p-2 border border-[#E5D5B5]">Break 2 Start</th>
-            <th className="p-2 border border-[#E5D5B5]">Break 2 End</th>
-            <th className="p-2 border border-[#E5D5B5]">Break 3 Start</th>
-            <th className="p-2 border border-[#E5D5B5]">Break 3 End</th>
-            <th className="p-2 border border-[#E5D5B5]">Clock Out</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row, index) => (
-            <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-[#FFFBF6]'}>
-              <td className="p-2 border border-[#E5D5B5] text-center">{format(row.date, 'dd/MM')}</td>
-              <td className="p-2 border border-[#E5D5B5] text-center">{row.checkIn || '-'}</td>
-              <td className="p-2 border border-[#E5D5B5] text-center">{row.breakIn1 || '-'}</td>
-              <td className="p-2 border border-[#E5D5B5] text-center">{row.breakOut1 || '-'}</td>
-              <td className="p-2 border border-[#E5D5B5] text-center">{row.breakIn2 || '-'}</td>
-              <td className="p-2 border border-[#E5D5B5] text-center">{row.breakOut2 || '-'}</td>
-              <td className="p-2 border border-[#E5D5B5] text-center">{row.breakIn3 || '-'}</td>
-              <td className="p-2 border border-[#E5D5B5] text-center">{row.breakOut3 || '-'}</td>
-              <td className="p-2 border border-[#E5D5B5] text-center">{row.checkOut || '-'}</td>
+    <div className="time-activity-container">
+      <div className="table-controls">
+        <button 
+          className="toggle-breaks-btn" 
+          onClick={toggleExtendedBreaks}
+        >
+          {showExtendedBreaks ? '- less' : '+ more'}
+        </button>
+      </div>
+      
+      <div className="time-table-wrapper">
+        <table className="time-activity-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>In</th>
+              <th>B1 In</th>
+              <th>B1 Out</th>
+              {showExtendedBreaks && (
+                <>
+                  <th>B2 In</th>
+                  <th>B2 Out</th>
+                  <th>B3 In</th>
+                  <th>B3 Out</th>
+                </>
+              )}
+              <th>Out</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {timeRecords.map((record) => (
+              <tr key={record.id}>
+                <td>{formatDate(record.date)}</td>
+                <td 
+                  className={record.checkIn ? 'has-data' : 'no-data'} 
+                  onClick={() => handleCellClick(record.id, 'clockInTime', 'Clock In')}
+                >
+                  {record.checkIn || '-'}
+                </td>
+                <td 
+                  className={record.breakIn1 ? 'has-data' : 'no-data'} 
+                  onClick={() => handleCellClick(record.id, 'breakStartTime1', 'Break 1 In')}
+                >
+                  {record.breakIn1 || '-'}
+                </td>
+                <td 
+                  className={record.breakOut1 ? 'has-data' : 'no-data'} 
+                  onClick={() => handleCellClick(record.id, 'breakEndTime1', 'Break 1 Out')}
+                >
+                  {record.breakOut1 || '-'}
+                </td>
+                {showExtendedBreaks && (
+                  <>
+                    <td 
+                      className={record.breakIn2 ? 'has-data' : 'no-data'} 
+                      onClick={() => handleCellClick(record.id, 'breakStartTime2', 'Break 2 In')}
+                    >
+                      {record.breakIn2 || '-'}
+                    </td>
+                    <td 
+                      className={record.breakOut2 ? 'has-data' : 'no-data'} 
+                      onClick={() => handleCellClick(record.id, 'breakEndTime2', 'Break 2 Out')}
+                    >
+                      {record.breakOut2 || '-'}
+                    </td>
+                    <td 
+                      className={record.breakIn3 ? 'has-data' : 'no-data'} 
+                      onClick={() => handleCellClick(record.id, 'breakStartTime3', 'Break 3 In')}
+                    >
+                      {record.breakIn3 || '-'}
+                    </td>
+                    <td 
+                      className={record.breakOut3 ? 'has-data' : 'no-data'} 
+                      onClick={() => handleCellClick(record.id, 'breakEndTime3', 'Break 3 Out')}
+                    >
+                      {record.breakOut3 || '-'}
+                    </td>
+                  </>
+                )}
+                <td 
+                  className={record.checkOut ? 'has-data' : 'no-data'} 
+                  onClick={() => handleCellClick(record.id, 'clockOutTime', 'Clock Out')}
+                >
+                  {record.checkOut || '-'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedCell && (
+        <div className="edit-time-modal">
+          <div className="modal-content">
+            <h2>Edit Time</h2>
+            <p>{selectedCell.fieldName}</p>
+            <input
+              type="time"
+              onChange={(e) => handleSaveTime(e.target.value)}
+            />
+            <div className="modal-buttons">
+              <button 
+                className="cancel-button"
+                onClick={() => setSelectedCell(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="save-button"
+                onClick={() => handleSaveTime(document.querySelector('input[type="time"]')?.value || '')}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,9 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { authenticate } from '../middleware/authenticate';
-import { isAdmin } from '../middleware/isAdmin';
-import { ReportService } from '../services/reportService';
-import { format } from 'date-fns';
+import { format, parse } from 'date-fns';
 
 const router = Router();
 
@@ -14,286 +12,216 @@ router.get('/', authenticate, async (req, res) => {
     }
 
     const userId = req.user.id;
-    console.log('Fetching time records for user:', userId);  // 디버깅용 로그
+    const { startDate, endDate } = req.query;
     
-    // DB에서 시간 기록 조회
+    console.log('받은 요청 데이터:', {
+      userId,
+      startDate,
+      endDate
+    });
+    
+    // yyyy-MM-dd 형식을 dd-MM-yyyy 형식으로 변환
+    const formatDateForDB = (dateStr: string) => {
+      const parsedDate = parse(dateStr, 'yyyy-MM-dd', new Date());
+      return format(parsedDate, 'dd-MM-yyyy');
+    };
+
+    const whereClause: any = {
+      userId: userId
+    };
+
+    if (startDate && endDate) {
+      const dbStartDate = formatDateForDB(startDate as string);
+      const dbEndDate = formatDateForDB(endDate as string);
+      
+      console.log('변환된 DB 날짜:', {
+        시작일: dbStartDate,
+        종료일: dbEndDate
+      });
+
+      whereClause.date = {
+        gte: dbStartDate,
+        lte: dbEndDate
+      };
+    }
+    
+    console.log('DB 쿼리 조건:', whereClause);
+
     const timeRecords = await prisma.timeRecord.findMany({
-      where: {
-        userId: userId
-      },
+      where: whereClause,
       select: {
         date: true,
         clockInTime: true,
         clockOutTime: true,
-        breakStartTime: true,
-        breakEndTime: true
+        breakStartTime1: true,
+        breakEndTime1: true,
+        breakStartTime2: true,
+        breakEndTime2: true,
+        breakStartTime3: true,
+        breakEndTime3: true,
+        workingHours: true,
+        breakMinutes: true
       },
       orderBy: {
         date: 'desc'
       }
     });
 
-    console.log('Found records:', timeRecords.length);  // 디버깅용 로그
-    res.json(timeRecords);
+    console.log(`✅ 조회된 기록 수: ${timeRecords.length}`);
+    
+    if (timeRecords.length > 0) {
+      console.log('📝 첫 번째 기록:', timeRecords[0]);
+    }
+
+    // 클라이언트에 보내기 전에 날짜 형식을 yyyy-MM-dd로 변환
+    const formattedRecords = timeRecords.map(record => ({
+      ...record,
+      date: format(parse(record.date, 'dd-MM-yyyy', new Date()), 'yyyy-MM-dd')
+    }));
+
+    res.json(formattedRecords);
     
   } catch (error) {
-    console.error('Error fetching time records:', error);
-    res.status(500).json({ error: 'Failed to fetch time records' });
+    console.error('❌ 근무 기록 조회 중 오류 발생:', error);
+    console.error('상세 에러:', {
+      message: error.message,
+      stack: error.stack
+    });
+    
+    res.status(500).json({ 
+      error: '근무 기록 조회 중 오류가 발생했습니다',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
-// 리포트 생성 엔드포인트
-router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
+router.put('/:id', authenticate, async (req, res) => {
   try {
-    console.log('[Report API] Report generation started');
-    const { startDate, endDate, locationId } = req.body;
-    
-    if (!req.user?.id) {
+    const { id } = req.params;
+    const { field, time } = req.body;
+    const userId = req.user?.id;
+
+    if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    
-    // 날짜 문자열로 변환 (DD-MM-YYYY 형식으로 통일)
-    const formattedStartDate = format(new Date(startDate), 'dd-MM-yyyy');
-    const formattedEndDate = format(new Date(endDate), 'dd-MM-yyyy');
-    
-    console.log(`[Report API] Date range: ${formattedStartDate} to ${formattedEndDate}`);
-    console.log(`[Report API] Location ID: ${locationId || 'All Locations'}`);
 
-    // 타임레코드 조회 조건 설정
-    const where: any = {};
-    
-    // 날짜 범위 설정 (문자열 비교 대신 날짜 객체 사용)
-    const startDateObj = new Date(startDate);
-    const endDateObj = new Date(endDate);
-    startDateObj.setHours(0, 0, 0, 0);
-    endDateObj.setHours(23, 59, 59, 999);
-    
-    where.date = {
-      gte: formattedStartDate,
-      lte: formattedEndDate
+    // 유효한 필드인지 확인
+    const validFields = [
+      'clockInTime', 'clockOutTime',
+      'breakStartTime1', 'breakEndTime1',
+      'breakStartTime2', 'breakEndTime2',
+      'breakStartTime3', 'breakEndTime3'
+    ];
+
+    if (!validFields.includes(field)) {
+      return res.status(400).json({ error: 'Invalid field name' });
+    }
+
+    // 시간 형식 검증 (HH:mm)
+    const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(time)) {
+      return res.status(400).json({ error: 'Invalid time format' });
+    }
+
+    const record = await prisma.timeRecord.findUnique({
+      where: { id: parseInt(id) }
+    });
+
+    if (!record) {
+      return res.status(404).json({ error: 'Record not found' });
+    }
+
+    if (record.userId !== userId) {
+      return res.status(403).json({ error: 'Not authorized to update this record' });
+    }
+
+    const updateData = {
+      [field]: time
     };
-    
-    if (locationId) {
-      where.locationId = parseInt(locationId);
-    }
 
-    console.log('[Report API] Query conditions:', JSON.stringify(where));
-
-    // 타임레코드 데이터 조회
-    const timeRecords = await prisma.timeRecord.findMany({
-      where,
-      include: {
-        user: {
-          select: {
-            name: true,
-            email: true,
-            title: true
-          }
-        },
-        location: {
-          select: {
-            name: true,
-            branch: true
-          }
-        }
-      },
-      orderBy: {
-        date: 'asc'
-      }
+    const updatedRecord = await prisma.timeRecord.update({
+      where: { id: parseInt(id) },
+      data: updateData
     });
 
-    console.log(`[Report API] Found ${timeRecords.length} records`);
-    
-    if (timeRecords.length === 0) {
-      return res.status(404).json({ error: 'No records found for the specified period' });
-    }
-
-    // 위치 정보 가져오기
-    let locationName = 'All Locations';
-    if (locationId) {
-      const location = await prisma.location.findUnique({
-        where: { id: parseInt(locationId) },
-        select: { name: true, branch: true }
-      });
-      
-      if (location) {
-        locationName = location.branch ? 
-          `${location.name} - ${location.branch}` : 
-          location.name;
-      }
-    }
-
-    console.log('[Report API] Calling ReportService.generateAttendanceReport');
-    try {
-      const excelBuffer = await ReportService.generateAttendanceReport(timeRecords);
-      console.log('[Report API] Excel buffer generated, size:', excelBuffer.byteLength, 'bytes');
-
-      // 파일명 생성
-      const fileName = `${locationName}_Attendance Report_${formattedStartDate} to ${formattedEndDate}.xlsx`;
-      
-      // 리포트 정보를 데이터베이스에 저장
-      const reportTitle = `${locationName} Attendance Report ${formattedStartDate} to ${formattedEndDate}`;
-      
-      // Ensure the buffer is properly stored
-      const report = await prisma.report.create({
-        data: {
-          title: reportTitle,
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
-          fileName: fileName,
-          fileData: excelBuffer,
-          locationId: locationId ? parseInt(locationId) : null,
-          creatorId: req.user.id,
-          // updatedAt: new Date()
-        }
-      });
-      
-      console.log(`[Report API] Report saved to database with ID: ${report.id}`);
-      
-      // 생성된 리포트 정보 반환
-      res.status(201).json({
-        id: report.id,
-        title: report.title,
-        startDate: report.startDate.toISOString().split('T')[0],
-        endDate: report.endDate.toISOString().split('T')[0],
-        fileName: report.fileName,
-        locationId: report.locationId,
-        locationName: locationName,
-        createdAt: report.createdAt.toISOString(),
-        updatedAt: report.updatedAt.toISOString()
-
-      });
-    } catch (error: any) {
-      console.error('[Report API] Error in Excel generation:', error);
-      return res.status(500).json({ 
-        error: 'Failed to generate Excel report', 
-        details: error.message 
-      });
-    }
-  } catch (error: any) {
-    console.error('[Report API] Error generating report:', error);
-    res.status(500).json({ 
-      error: 'Failed to generate report',
-      details: error.message
-    });
-  }
-});
-
-// 리포트 목록 조회 API 수정
-router.get('/reports', authenticate, isAdmin, async (req, res) => {
-  try {
-    // 관계 정보 없이 기본 리포트 데이터만 가져오기
-    const reports = await prisma.report.findMany({
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-    
-    // 데이터베이스 오류 없이 기본 데이터만 반환
-    const formattedReports = reports.map((report: any) => ({
-      id: report.id,
-      title: report.title,
-      startDate: report.startDate.toISOString().split('T')[0],
-      endDate: report.endDate.toISOString().split('T')[0],
-      fileName: report.fileName,
-      locationId: report.locationId,
-      createdAt: report.createdAt.toISOString(),
-      updatedAt: report.updatedAt.toISOString()
-    }));
-    
-    res.json(formattedReports);
+    res.json(updatedRecord);
   } catch (error) {
-    console.error('[Report API] Error fetching reports:', error);
-    res.status(500).json({ error: 'Failed to fetch reports' });
+    console.error('Error updating time record:', error);
+    res.status(500).json({ error: 'Failed to update time record' });
   }
 });
 
-// 리포트 삭제 API 추가
-router.post('/reports/delete', authenticate, isAdmin, async (req, res) => {
+// 새 시간 기록 생성
+router.post('/', authenticate, async (req, res) => {
   try {
-    const { ids } = req.body;
-    
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: 'Invalid report IDs' });
+    const { date, status, ...timeFields } = req.body;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
-    
-    console.log('[Report API] Deleting reports with IDs:', ids);
-    
-    // 리포트 삭제
-    const result = await prisma.report.deleteMany({
+
+    // 사용자 정보 조회하여 locationId 가져오기
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { locationId: true }
+    });
+
+    if (!user || !user.locationId) {
+      return res.status(400).json({ error: 'User location not found' });
+    }
+
+    console.log('Creating time record with data:', {
+      userId,
+      date,
+      status,
+      locationId: user.locationId,
+      ...timeFields
+    });
+
+    // 해당 날짜의 기존 기록 확인
+    let timeRecord = await prisma.timeRecord.findFirst({
       where: {
-        id: {
-          in: ids.map(id => parseInt(id))
+        userId,
+        date
+      }
+    });
+
+    // 기존 기록이 없으면 새로 생성
+    if (!timeRecord) {
+      timeRecord = await prisma.timeRecord.create({
+        data: {
+          userId,
+          date,
+          status: status || 'ACTIVE',
+          locationId: user.locationId,
+          ...timeFields
         }
-      }
-    });
-    
-    console.log(`[Report API] Deleted ${result.count} reports`);
-    
-    res.json({ 
-      message: `${result.count} reports deleted successfully`,
-      deletedCount: result.count
-    });
-  } catch (error) {
-    console.error('[Report API] Error deleting reports:', error);
-    res.status(500).json({ 
-      error: 'Failed to delete reports',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-// 리포트 다운로드 API
-router.get('/reports/:id/download', authenticate, isAdmin, async (req, res) => {
-  try {
-    const reportId = parseInt(req.params.id);
-    
-    // 리포트 정보 조회
-    const report = await prisma.report.findUnique({
-      where: { id: reportId }
-    });
-    
-    if (!report) {
-      return res.status(404).json({ error: 'Report not found' });
+      });
+    } else {
+      // 기존 기록이 있으면 업데이트
+      timeRecord = await prisma.timeRecord.update({
+        where: {
+          id: timeRecord.id
+        },
+        data: {
+          ...timeFields
+        }
+      });
     }
-    
-    // 응답 헤더 설정
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(report.fileName)}"`);
-    
-    // Ensure the fileData is properly handled as a Buffer
-    const buffer = Buffer.from(report.fileData);
-    
-    // Log the buffer size for debugging
-    console.log(`[Report API] Sending report ${reportId} with buffer size: ${buffer.length} bytes`);
-    
-    // 저장된 파일 데이터 전송
-    res.send(buffer);
-  } catch (error) {
-    console.error('[Report API] Error downloading report:', error);
-    res.status(500).json({ error: 'Failed to download report' });
-  }
-});
 
-// 지점 목록 조회 API 추가
-router.get('/locations', authenticate, isAdmin, async (req, res) => {
-  try {
-    const locations = await prisma.location.findMany({
-      orderBy: {
-        name: 'asc'
-      },
-      select: {
-        id: true,
-        name: true,
-        branch: true
-      }
+    res.status(201).json(timeRecord);
+  } catch (error) {
+    console.error('Error creating time record:', error);
+    // 에러 상세 정보 로깅
+    if (error.name === 'PrismaClientValidationError') {
+      console.error('Prisma validation error details:', error.message);
+    }
+    res.status(500).json({ 
+      error: 'Failed to create time record',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-    
-    res.json(locations);
-  } catch (error) {
-    console.error('[API] Error fetching locations:', error);
-    res.status(500).json({ error: 'Failed to fetch locations' });
   }
 });
 
-export { router as timeRecordsRouter };
+export default router;

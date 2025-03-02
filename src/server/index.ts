@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { authRouter } from './routes/auth';
 import {timeEntriesRouter} from './routes/timeEntries';
-import { timeRecordsRouter } from './routes/timeRecords';
+import timeRecordsRouter from './routes/timeRecords';
 import { locationRouter } from './routes/locations';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/authenticate';
@@ -65,7 +65,7 @@ app.get('/.well-known/render-health', (req, res) => {
 app.use('/auth', authRouter);
 app.use('/user', userRouter);
 app.use('/locations', locationRouter);
-app.use('/time-records', timeRecordsRouter);
+app.use('/timeRecords', timeRecordsRouter);
 
 
 // Protected routes
@@ -133,7 +133,7 @@ app.use((req, res) => {
       '/auth/signup',
       '/locations',
       '/api/time-entries',
-      '/api/time-records',
+      '/api/timeRecords',
       '/admin'
     ]
   });

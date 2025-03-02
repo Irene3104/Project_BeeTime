@@ -1,25 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TimeActivityTable } from '../components/TimeActivityTable';
-import { TimeActivityRow } from '../types';
 import { API_URL } from '../config/constants';
 import { format, subDays, addDays } from 'date-fns';
-import { Menu } from 'lucide-react';
-import Logo from '../assets/logo_bee3.png';
 import { Layout } from '../components/Layout';
+import { TimeActivityTable } from '../components/TimeActivityTable';
+import BeeTimeLogo from '../assets/logo_bee2.svg';
 
-// 메뉴 관련 아이콘들 import
-import HomeIcon from '../assets/home.png';
-import UserIcon from '../assets/user.png';
-import TimeIcon from '../assets/time.png';
-import LogoutIcon from '../assets/logout.png';
-import CancelIcon from '../assets/btn_icon_cancel.png';
-import HomeIconHover from '../assets/home_hover.png';
-import UserIconHover from '../assets/user_hover.png';
-import TimeIconHover from '../assets/time_hover.png';
 
-// TimeActivityRow 인터페이스 확장
-interface TimeActivityRow {
+
+interface TimeRecord {
+  id: number;
   date: Date;
   checkIn: string | null;
   breakIn1: string | null;
@@ -29,28 +19,30 @@ interface TimeActivityRow {
   breakIn3: string | null;
   breakOut3: string | null;
   checkOut: string | null;
+  workingHours: number | null;
+  breakMinutes: number | null;
 }
 
 export const TimeActivity: React.FC = () => {
-    const navigate = useNavigate();
-    const [isMenuOpen, setIsMenuOpen] = useState(false);
-    const [timeRecords, setTimeRecords] = useState<TimeActivityRow[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [currentDate, setCurrentDate] = useState(new Date());
+  const navigate = useNavigate();
+  const [timeRecords, setTimeRecords] = useState<TimeRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [currentDate, setCurrentDate] = useState(new Date());
 
-    // 로그아웃 핸들러
-    const handleLogout = () => {
-        localStorage.clear();
-        sessionStorage.clear();
-        navigate('/login');
-      };
+  // 로그아웃 핸들러
+  const handleLogout = () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    navigate('/login');
+  };
 
   // 7일치 날짜 데이터 생성
   const generateWeekDates = (baseDate: Date) => {
-    const dates: TimeActivityRow[] = [];
+    const dates: TimeRecord[] = [];
     for (let i = 0; i < 7; i++) {
       dates.push({
+        id: 0,  // 실제 데이터가 매칭될 때 덮어써질 것임
         date: addDays(baseDate, i),
         checkIn: null,
         breakIn1: null,
@@ -59,13 +51,15 @@ export const TimeActivity: React.FC = () => {
         breakOut2: null,
         breakIn3: null,
         breakOut3: null,
-        checkOut: null
+        checkOut: null,
+        workingHours: null,
+        breakMinutes: null
       });
     }
     return dates;
   };
 
-  // 근무 기록 조회
+  // 근무 기록 조회 (DB 구조에 맞게 수정)
   const fetchTimeRecords = async (baseDate: Date) => {
     try {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
@@ -78,10 +72,12 @@ export const TimeActivity: React.FC = () => {
       // 날짜 범위 설정 (현재 날짜부터 7일)
       const startDate = format(baseDate, 'yyyy-MM-dd');
       const endDate = format(addDays(baseDate, 6), 'yyyy-MM-dd');
-      const url = `${API_URL}/time-records?startDate=${startDate}&endDate=${endDate}`;
       
-      console.log('요청 URL:', url);
-      console.log('토큰:', token);
+      // timeRecord 엔드포인트로 변경
+      const url = `${API_URL}/timeRecords?startDate=${startDate}&endDate=${endDate}`;
+      
+      console.log('🔍 API 요청 URL:', url);
+      console.log('📅 요청 기간:', `${startDate} ~ ${endDate}`);
       
       const response = await fetch(url, {
         method: 'GET',
@@ -90,52 +86,58 @@ export const TimeActivity: React.FC = () => {
           'Content-Type': 'application/json'
         }
       });
-
-      console.log('응답 상태:', response.status);
+      
+      console.log('📊 응답 상태:', response.status);
       
       if (!response.ok) {
         const errorData = await response.text();
-        console.error('API 응답 에러:', errorData);
-        throw new Error(`Failed to fetch time records: ${response.status}`);
+        console.error('❌ API 응답 에러:', errorData);
+        throw new Error(`근무 기록을 가져오는데 실패했습니다: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('받은 데이터:', data);
+      console.log('✅ 받은 데이터:', data);
       
+      // 7일치 기본 날짜 생성
       const weekDates = generateWeekDates(baseDate);
       
-      // 데이터 포맷팅
+      // 응답 데이터와 날짜 매핑
       const formattedData = weekDates.map(weekDate => {
-        const record = data.find((r: any) => {
-          // DB 날짜 형식 (13-02-2025)에서 일/월 부분만 추출
-          const [day, month] = r.date.split('-');
-          // 테이블용 날짜 형식 (dd/MM)
-          const tableDate = format(weekDate.date, 'dd/MM');
-          // 일/월 형식으로 비교
-          return tableDate === `${day}/${month}`;
-        });
+        const formattedDate = format(new Date(weekDate.date), 'yyyy-MM-dd');
+        const record = data.find((r: any) => r.date === formattedDate);
         
         if (record) {
+          console.log(`✓ ${formattedDate} 날짜의 근무 기록 찾음:`, record);
           return {
-            date: weekDate.date,
+            ...weekDate,
+            id: record.id,
             checkIn: record.clockInTime,
-            breakIn1: record.breakStart1Time,
-            breakOut1: record.breakEnd1Time,
-            breakIn2: record.breakStart2Time,
-            breakOut2: record.breakEnd2Time,
-            breakIn3: record.breakStart3Time,
-            breakOut3: record.breakEnd3Time,
-            checkOut: record.clockOutTime
+            breakIn1: record.breakStartTime1,
+            breakOut1: record.breakEndTime1, 
+            breakIn2: record.breakStartTime2,
+            breakOut2: record.breakEndTime2,
+            breakIn3: record.breakStartTime3,
+            breakOut3: record.breakEndTime3,
+            checkOut: record.clockOutTime,
+            workingHours: record.workingHours,
+            breakMinutes: record.breakMinutes
           };
         }
-        return weekDate;
+        
+        // 데이터가 없는 경우에도 해당 날짜의 레코드 ID를 생성
+        const dateStr = format(new Date(weekDate.date), 'yyyyMMdd');
+        return {
+          ...weekDate,
+          id: parseInt(dateStr), // 날짜를 기반으로 한 고유 ID 생성
+        };
       });
 
+      console.log('Formatted data:', formattedData);
       setTimeRecords(formattedData);
       setLoading(false);
     } catch (err) {
-      console.error('에러 발생:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      console.error('❌ 에러 발생:', err);
+      setError(err instanceof Error ? err.message : '데이터를 불러오는 중 오류가 발생했습니다');
       setLoading(false);
     }
   };
@@ -150,116 +152,114 @@ export const TimeActivity: React.FC = () => {
     fetchTimeRecords(currentDate);
   }, [currentDate]);
 
-  if (loading) {
-    return <div className="flex justify-center items-center h-screen">Loading...</div>;
-  }
-
-  if (error) {
-    return <div className="text-red-500 text-center">{error}</div>;
-  }
+  // 레코드 업데이트 핸들러 함수 추가
+  const handleRecordUpdate = (updatedRecord: any) => {
+    console.log('Record updated:', updatedRecord);
+    
+    // 기존 timeRecords 배열에서 업데이트된 레코드 찾아 교체
+    setTimeRecords(prevRecords => 
+      prevRecords.map(record => {
+        // id가 같은 레코드를 찾아 업데이트
+        if (record.id === updatedRecord.id) {
+          return {
+            ...record,
+            id: updatedRecord.id,
+            checkIn: updatedRecord.clockInTime,
+            breakIn1: updatedRecord.breakStartTime1,
+            breakOut1: updatedRecord.breakEndTime1,
+            breakIn2: updatedRecord.breakStartTime2,
+            breakOut2: updatedRecord.breakEndTime2,
+            breakIn3: updatedRecord.breakStartTime3,
+            breakOut3: updatedRecord.breakEndTime3,
+            checkOut: updatedRecord.clockOutTime,
+            workingHours: updatedRecord.workingHours,
+            breakMinutes: updatedRecord.breakMinutes
+          };
+        }
+        
+        // 새 레코드인 경우 (날짜로 매칭)
+        if (!updatedRecord.id && record.date && updatedRecord.date) {
+          const recordDate = format(new Date(record.date), 'yyyy-MM-dd');
+          const updatedDate = format(new Date(updatedRecord.date), 'yyyy-MM-dd');
+          
+          if (recordDate === updatedDate) {
+            return {
+              ...record,
+              id: updatedRecord.id,
+              checkIn: updatedRecord.clockInTime,
+              breakIn1: updatedRecord.breakStartTime1,
+              breakOut1: updatedRecord.breakEndTime1,
+              breakIn2: updatedRecord.breakStartTime2,
+              breakOut2: updatedRecord.breakEndTime2,
+              breakIn3: updatedRecord.breakStartTime3,
+              breakOut3: updatedRecord.breakEndTime3,
+              checkOut: updatedRecord.clockOutTime,
+              workingHours: updatedRecord.workingHours,
+              breakMinutes: updatedRecord.breakMinutes
+            };
+          }
+        }
+        
+        return record;
+      })
+    );
+    
+    // 데이터 변경 후 다시 불러오기
+    fetchTimeRecords(currentDate);
+  };
 
   return (
     <Layout>
-    <div className="p-4 bg-[#FFFBF6] min-h-screen">
-      {/* 메뉴 아이콘 */}
-      <div className=" mt-2 absolute top-4 right-6">
-        <Menu 
-          className="h-8 w-8 cursor-pointer text-[#B17F4A]" 
-          onClick={() => setIsMenuOpen(true)}
-        />
-      </div>
-
-      {/* 메인 컨텐츠 컨테이너 */}
-      <div className="mt-[20pt] pt-[20pt] pb-[20pt]">
-        {/* 로고 */}
-        <div className="flex justify-center mb-2">
-          <img src={Logo} alt="Bee Time Logo" className="h-16 w-16" />
+      <div className="flex flex-col min-h-screen bg-[#F7E3CA] px-4 py-6">
+        {/* 헤더 섹션 */}
+        <div className="flex flex-col items-center justify-center mb-6">
+          <img 
+            src={BeeTimeLogo} 
+            alt="BeeTime Logo" 
+            className="w-16 h-16 mb-2"
+          />
+          <h1 className="text-xl font-bold text-[#805B3F]">Time Activity</h1>
+        </div>
+        
+        {/* 날짜 표시 */}
+        <div className="text-center mb-4 text-sm font-medium">
+          {format(currentDate, 'yyyy.MM.dd')} - {format(addDays(currentDate, 6), 'yyyy.MM.dd')}
         </div>
 
-        {/* 제목 */}
-        <h1 className="text-[18pt] font-bold mb-2 font-fredoka text-center">Time Activity</h1>
-
-        {/* 테이블 */}
-        <div className="mb-4">
-          <TimeActivityTable data={timeRecords} />
-        </div>
-
-        {/* 네비게이션 버튼 */}
-        <div className="flex justify-between mt-4 font-montserrat text-[#B17F4A]">
-          <button 
-            className="flex items-center"
-            onClick={() => {
-              const newDate = subDays(currentDate, 7);
-              setCurrentDate(newDate);
-            }}
-          >
-            ◀ Previous
-          </button>
-          <button 
-            className="flex items-center"
-            onClick={() => {
-              const newDate = addDays(currentDate, 7);
-              setCurrentDate(newDate);
-            }}
-          >
-            Next ▶
-          </button>
-        </div>
-      </div>
-
-      {/* 사이드 메뉴 */}
-      {isMenuOpen && (
-        <div className="fixed top-0 right-0 h-full w-full md:w-[375px] bg-[#A77750] shadow-lg z-40">
-          {/* 닫기 버튼 */}
-          <button 
-            className="absolute top-6 right-6 z-50"
-            onClick={() => setIsMenuOpen(false)}
-          >
-            <img src={CancelIcon} alt="close" className="w-8 h-8" />
-          </button>
-
-          {/* 메뉴 컨테이너 */}
-          <div className="flex flex-col h-full pt-40 px-0">
-            {/* 상단 메뉴 아이템들 */}
-            <div className="space-y-5">
-              <div 
-                className="flex items-center p-8 hover:bg-[#FFE26C] group cursor-pointer px-20"
-                onClick={() => navigate('/dashboard')}
-              >
-                <img src={HomeIcon} alt="home" className="w-6 h-6 mr-4 group-hover:hidden" />
-                <img src={HomeIconHover} alt="home" className="w-6 h-6 mr-4 hidden group-hover:block" />
-                <span className="text-white group-hover:text-black font-montserrat font-medium text-lg">Home</span>
-              </div>
-              <div 
-                className="flex items-center p-8 hover:bg-[#FFE26C] group cursor-pointer px-20"
-                onClick={() => navigate('/account')}
-              >
-                <img src={UserIcon} alt="account" className="w-6 h-6 mr-4 group-hover:hidden" />
-                <img src={UserIconHover} alt="account" className="w-6 h-6 mr-4 hidden group-hover:block" />
-                <span className="text-white group-hover:text-black font-montserrat font-medium text-lg">Account</span>
-              </div>
-              <div 
-                className="flex items-center p-8 hover:bg-[#FFE26C] group cursor-pointer px-20"
-                onClick={() => navigate('/time-activity')}
-              >
-                <img src={TimeIcon} alt="time" className="w-6 h-6 mr-4 group-hover:hidden" />
-                <img src={TimeIconHover} alt="time" className="w-6 h-6 mr-4 hidden group-hover:block" />
-                <span className="text-white group-hover:text-black font-montserrat font-medium text-lg">Time Activity</span>
-              </div>
-            </div>
-
-            {/* 로그아웃 버튼 */}
-            <div 
-              className="mt-auto mb-10 flex items-center p-4 cursor-pointer rounded-2xl px-20"
-              onClick={handleLogout}
-            >
-              <img src={LogoutIcon} alt="logout" className="w-6 h-6 mr-4" />
-              <span className="text-[#FFE26C] font-montserrat font-medium text-lg">Logout</span>
-            </div>
+        {/* 테이블 섹션 */}
+        {loading ? (
+          <div className="text-center py-4 text-sm">
+            Loading...
           </div>
+        ) : error ? (
+          <div className="text-red-500 text-center py-4 text-sm">
+            {error}
+          </div>
+        ) : (
+          <TimeActivityTable 
+            timeRecords={timeRecords} 
+            onRecordUpdate={handleRecordUpdate}
+          />
+        )}
+
+        {/* 네비게이션 버튼 (테이블 아래 빈 공간) */}
+        <div className="flex justify-center items-center mt-6 space-x-8">
+          <button
+            onClick={() => setCurrentDate(prev => subDays(prev, 7))}
+            className="px-4 py-2 text-sm text-[#B08968] hover:text-[#805B3F] 
+                     flex items-center justify-center"
+          >
+            <span className="mr-1">←</span> Previous Week
+          </button>
+          <button
+            onClick={() => setCurrentDate(prev => addDays(prev, 7))}
+            className="px-4 py-2 text-sm text-[#B08968] hover:text-[#805B3F]
+                     flex items-center justify-center"
+          >
+            Next Week <span className="ml-1">→</span>
+          </button>
         </div>
-      )}
-    </div>
+      </div>
     </Layout>
   );
 };
