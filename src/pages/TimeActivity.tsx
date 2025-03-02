@@ -18,6 +18,19 @@ import HomeIconHover from '../assets/home_hover.png';
 import UserIconHover from '../assets/user_hover.png';
 import TimeIconHover from '../assets/time_hover.png';
 
+// TimeActivityRow 인터페이스 확장
+interface TimeActivityRow {
+  date: Date;
+  checkIn: string | null;
+  breakIn1: string | null;
+  breakOut1: string | null;
+  breakIn2: string | null;
+  breakOut2: string | null;
+  breakIn3: string | null;
+  breakOut3: string | null;
+  checkOut: string | null;
+}
+
 export const TimeActivity: React.FC = () => {
     const navigate = useNavigate();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -40,8 +53,12 @@ export const TimeActivity: React.FC = () => {
       dates.push({
         date: addDays(baseDate, i),
         checkIn: null,
-        breakIn: null,
-        breakOut: null,
+        breakIn1: null,
+        breakOut1: null,
+        breakIn2: null,
+        breakOut2: null,
+        breakIn3: null,
+        breakOut3: null,
         checkOut: null
       });
     }
@@ -102,8 +119,12 @@ export const TimeActivity: React.FC = () => {
           return {
             date: weekDate.date,
             checkIn: record.clockInTime,
-            breakIn: record.breakStartTime,
-            breakOut: record.breakEndTime,
+            breakIn1: record.breakStart1Time,
+            breakOut1: record.breakEnd1Time,
+            breakIn2: record.breakStart2Time,
+            breakOut2: record.breakEnd2Time,
+            breakIn3: record.breakStart3Time,
+            breakOut3: record.breakEnd3Time,
             checkOut: record.clockOutTime
           };
         }

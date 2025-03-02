@@ -6,44 +6,184 @@ import { toNSWTime, fromNSWTime, getCurrentNSWTime } from '../../utils/dateTime'
 import { googleMapsClient } from '../services/googleMapsClient';
 import { Prisma, Location, TimeRecord } from '@prisma/client';
 import { formatInTimeZone } from 'date-fns-tz';
+import { Client } from '@googlemaps/google-maps-services-js';
 
 const router = Router();
 const TIMEZONE = 'Australia/Sydney';
 
+// Google Maps 클라이언트 초기화
+const googleMapsClient = new Client({});
+
+// 헬퍼 함수들을 라우터 정의 전에 선언
+const convertTimeToMinutes = (time: string): number => {
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+};
+
+const convertMinutesToTimeString = (totalMinutes: number): string => {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
+const calculateBreakMinutes = (timeRecord: any): number => {
+  let totalBreakMinutes = 0;
+  console.log("계산 전 레코드:", timeRecord); // 디버깅용
+
+  // 시간 형식을 분으로 변환하는 내부 함수
+  const convertTimeToMinutes = (time: string | null): number => {
+    if (!time) return 0;
+    
+    const [hours, minutes] = time.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+
+  // Break 1
+  if (timeRecord.breakStartTime1 && timeRecord.breakEndTime1) {
+    const breakStart1 = convertTimeToMinutes(timeRecord.breakStartTime1);
+    const breakEnd1 = convertTimeToMinutes(timeRecord.breakEndTime1);
+    const break1Minutes = breakEnd1 - breakStart1;
+    console.log(`Break 1: ${breakStart1}분 ~ ${breakEnd1}분 = ${break1Minutes}분`);
+    if (break1Minutes > 0) totalBreakMinutes += break1Minutes;
+  }
+
+  // Break 2
+  if (timeRecord.breakStartTime2 && timeRecord.breakEndTime2) {
+    const breakStart2 = convertTimeToMinutes(timeRecord.breakStartTime2);
+    const breakEnd2 = convertTimeToMinutes(timeRecord.breakEndTime2);
+    const break2Minutes = breakEnd2 - breakStart2;
+    console.log(`Break 2: ${breakStart2}분 ~ ${breakEnd2}분 = ${break2Minutes}분`);
+    if (break2Minutes > 0) totalBreakMinutes += break2Minutes;
+  }
+
+  // Break 3
+  if (timeRecord.breakStartTime3 && timeRecord.breakEndTime3) {
+    const breakStart3 = convertTimeToMinutes(timeRecord.breakStartTime3);
+    const breakEnd3 = convertTimeToMinutes(timeRecord.breakEndTime3);
+    const break3Minutes = breakEnd3 - breakStart3;
+    console.log(`Break 3: ${breakStart3}분 ~ ${breakEnd3}분 = ${break3Minutes}분`);
+    if (break3Minutes > 0) totalBreakMinutes += break3Minutes;
+  }
+
+  console.log(`총 휴식 시간: ${totalBreakMinutes}분`);
+  return Math.max(0, totalBreakMinutes);
+};
+
+const calculateWorkingHours = (timeRecord: any): number => {
+  if (!timeRecord.clockInTime || !timeRecord.clockOutTime) {
+    return 0;
+  }
+
+  const clockInMinutes = convertTimeToMinutes(timeRecord.clockInTime);
+  const clockOutMinutes = convertTimeToMinutes(timeRecord.clockOutTime);
+  const breakMinutes = calculateBreakMinutes(timeRecord);
+
+  const totalWorkingMinutes = Math.max(0, clockOutMinutes - clockInMinutes - breakMinutes);
+  // 시간을 소수점으로 변환 (예: 10시간 30분 = 10.5)
+  return Number((totalWorkingMinutes / 60).toFixed(2));
+};
+
 const timeEntrySchema = z.object({
+  type: z.enum(['clockIn', 'clockOut', 'breakStart1', 'breakEnd1', 'breakStart2', 'breakEnd2', 'breakStart3', 'breakEnd3']),
+  time: z.string(),
   date: z.string(),
-  clockInTime: z.string(),
-  breakStartTime: z.string().optional(),
-  breakEndTime: z.string().optional(),
-  clockOutTime: z.string().optional(),
+  placeId: z.string()
 });
 
 const locationVerificationSchema = z.object({
-  placeId: z.string(),
-  latitude: z.number(),
-  longitude: z.number(),
-  accuracy: z.number().optional(),
-  type: z.enum(['clockIn', 'breakStart', 'breakEnd', 'clockOut']),
-  timestamp: z.string()
+  type: z.enum(['clockIn', 'clockOut', 'breakStart1', 'breakEnd1', 'breakStart2', 'breakEnd2', 'breakStart3', 'breakEnd3']),
+  timestamp: z.string(),
+  qrData: z.string(),
+  location: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+    accuracy: z.number().optional()
+  })
 });
 
 router.post('/', validateRequest(timeEntrySchema), async (req, res) => {
-  const nswTime = getCurrentNSWTime();
-  
-  if (!req.user || !req.user.locationId) {
-    return res.status(400).json({ error: '근무지 정보가 없습니다.' });
-  }
+  try {
+    const { type, time, date, placeId } = req.body;
+    console.log('받은 요청 데이터:', { type, time, date, placeId });
+    
+    const existingRecord = await prisma.timeRecord.findFirst({
+      where: {
+        userId: req.user.id,
+        date: date
+      }
+    });
 
-  const timeEntry = await prisma.timeRecord.create({
-    data: {
-      userId: req.user.id,
-      locationId: req.user.locationId,
-      date: fromNSWTime(nswTime),
-      clockInTime: fromNSWTime(nswTime),
+    let result;
+    if (existingRecord) {
+      const updateData: any = {
+        [type === 'clockIn' ? 'clockInTime' : 
+         type === 'clockOut' ? 'clockOutTime' :
+         type === 'breakStart1' ? 'breakStartTime1' :
+         type === 'breakEnd1' ? 'breakEndTime1' :
+         type === 'breakStart2' ? 'breakStartTime2' :
+         type === 'breakEnd2' ? 'breakEndTime2' :
+         type === 'breakStart3' ? 'breakStartTime3' :
+         type === 'breakEnd3' ? 'breakEndTime3' : type]: time,
+        status: 'active'
+      };
+
+      if (type === 'clockOut') {
+        const tempRecord = { ...existingRecord, clockOutTime: time };
+        updateData.breakMinutes = calculateBreakMinutes(tempRecord);
+        updateData.workingHours = calculateWorkingHours(tempRecord);
+        updateData.status = 'completed';
+      }
+
+      result = await prisma.timeRecord.update({
+        where: { id: existingRecord.id },
+        data: updateData
+      });
+    } else {
+      // 새 기록 생성 시 필드 매핑 수정
+      const fieldMap: Record<string, string> = {
+        'clockIn': 'clockInTime',
+        'clockOut': 'clockOutTime',
+        'breakStart1': 'breakStartTime1',
+        'breakEnd1': 'breakEndTime1',
+        'breakStart2': 'breakStartTime2',
+        'breakEnd2': 'breakEndTime2',
+        'breakStart3': 'breakStartTime3',
+        'breakEnd3': 'breakEndTime3'
+      };
+      
+      // 올바른 필드명으로 매핑
+      const fieldToUpdate = fieldMap[type] || type;
+      
+      result = await prisma.timeRecord.create({
+        data: {
+          userId: req.user.id,
+          locationId: req.user.locationId,
+          date: date,
+          [fieldToUpdate]: time, // 올바른 필드명 사용
+          status: 'active',
+          breakMinutes: 0,
+          workingHours: 0
+        }
+      });
+      
+      console.log('생성된 기록:', result);
     }
-  });
-  
-  res.json(timeEntry);
+    
+    console.log('처리 결과:', result);
+    return res.status(200).json({
+      success: true,
+      message: `Successfully processed ${type}`,
+      data: result
+    });
+    
+  } catch (error) {
+    console.error('시간 기록 생성 오류:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: '서버 오류', 
+      details: error instanceof Error ? error.message : '알 수 없는 오류' 
+    });
+  }
 });
 
 router.get('/', async (req, res) => {
@@ -85,7 +225,7 @@ router.patch('/:id', validateRequest(timeEntrySchema.partial()), async (req, res
 
 router.post('/verify-location', validateRequest(locationVerificationSchema), async (req, res) => {
   try {
-    const { placeId, latitude, longitude, type, timestamp } = req.body;
+    const { type, timestamp, qrData } = req.body;
     const userId = req.user!.id;
     
     // Convert incoming timestamp to Sydney time
@@ -527,6 +667,337 @@ router.get('/debug-model', async (req, res) => {
     res.status(500).json({
       error: 'Debug failed',
       details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// QR 코드에서 위치 정보 파싱 함수 수정
+function parseQRLocation(qrData: string): { placeId: string, latitude: number, longitude: number } | null {
+  try {
+    console.log('서버에서 파싱 시도할 QR 데이터:', qrData);
+    
+    // 데이터가 없거나 문자열이 아닌 경우 처리
+    if (!qrData || typeof qrData !== 'string') {
+      console.error('유효하지 않은 QR 데이터:', qrData);
+      return null;
+    }
+    
+    // 1. JSON 형식 시도
+    if (qrData.startsWith('{')) {
+      try {
+        const data = JSON.parse(qrData);
+        if (data.placeId && data.lat && data.lng) {
+          const result = {
+            placeId: data.placeId,
+            latitude: parseFloat(data.lat),
+            longitude: parseFloat(data.lng)
+          };
+          console.log('JSON 형식으로 파싱 성공:', result);
+          return result;
+        }
+      } catch (e) {
+        console.log('JSON 파싱 실패, 다른 형식 시도');
+      }
+    }
+    
+    // 2. "placeId:123,lat:37.123,lng:127.123" 형식 시도
+    if (qrData.includes('placeId:') && qrData.includes('lat:') && qrData.includes('lng:')) {
+      try {
+        const parts = qrData.split(',');
+        const placeId = parts[0].split(':')[1];
+        const lat = parseFloat(parts[1].split(':')[1]);
+        const lng = parseFloat(parts[2].split(':')[1]);
+        
+        const result = { placeId, latitude: lat, longitude: lng };
+        console.log('쉼표 구분 형식으로 파싱 성공:', result);
+        return result;
+      } catch (e) {
+        console.log('쉼표 구분 형식 파싱 실패, 다른 형식 시도');
+      }
+    }
+    
+    // 3. Google Place ID만 있는 경우 (예: "ChIJMVmxBW2wEmsROqYsviTainU")
+    // 이 경우 서버에서 Place ID로 위치 정보를 조회
+    if (/^Ch[A-Za-z0-9_-]{20,}$/.test(qrData)) {
+      console.log('Google Place ID 형식 감지:', qrData);
+      
+      // Google Places API를 사용하여 위치 정보 조회
+      // 실제 구현에서는 googleMapsClient를 사용하여 위치 정보를 조회해야 함
+      try {
+        // 여기에 Google Places API 호출 코드 추가
+        // const placeDetails = await googleMapsClient.place({ placeid: qrData }).asPromise();
+        // const location = placeDetails.json.result.geometry.location;
+        
+        // 테스트를 위해 하드코딩된 위치 반환 (실제로는 API 응답 사용)
+        const result = {
+          placeId: qrData,
+          latitude: -33.8568,  // 테스트용 위도
+          longitude: 151.2153  // 테스트용 경도
+        };
+        
+        console.log('Place ID 파싱 성공 (테스트 위치 사용):', result);
+        return result;
+      } catch (e) {
+        console.error('Google Places API 조회 실패:', e);
+        return null;
+      }
+    }
+    
+    // 4. 기타 형식 (추가 형식이 있다면 여기에 구현)
+    
+    console.error('지원되지 않는 QR 코드 형식:', qrData);
+    return null;
+  } catch (error) {
+    console.error('QR 코드 파싱 오류:', error);
+    console.error('파싱 실패한 QR 데이터:', qrData);
+    return null;
+  }
+}
+
+// 시간 기록 생성/업데이트 엔드포인트 수정
+router.post('/time-entries', validateRequest(timeEntrySchema), async (req, res) => {
+  try {
+    const { type, time, date, placeId } = req.body;
+    console.log('시간 기록 요청:', { type, time, date, placeId });
+
+    if (!req.user) {
+      return res.status(401).json({ error: '인증이 필요합니다.' });
+    }
+
+    // 사용자 위치 정보 조회
+    const userLocation = await prisma.location.findFirst({
+      where: {
+        userId: req.user.id
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    if (!userLocation) {
+      return res.status(400).json({
+        error: '위치 정보 오류',
+        details: '사용자 위치 정보를 찾을 수 없습니다.'
+      });
+    }
+
+    // 해당 날짜의 기존 기록 조회
+    let timeRecord = await prisma.timeRecord.findUnique({
+      where: {
+        userId_date: {
+          userId: req.user.id,
+          date: date
+        }
+      }
+    });
+
+    // 기록이 없으면 새로 생성
+    if (!timeRecord) {
+      timeRecord = await prisma.timeRecord.create({
+        data: {
+          userId: req.user.id,
+          locationId: userLocation.id,
+          status: 'active',
+          date: date,
+          // 기본값 설정
+          breakMinutes: 0,
+          workingHours: 0
+        }
+      });
+    }
+
+    // 타입에 따라 해당 필드 업데이트
+    const updateData: any = {};
+    
+    switch (type) {
+      case 'clockIn':
+        updateData.clockInTime = time;
+        updateData.status = 'active';
+        break;
+      case 'clockOut':
+        updateData.clockOutTime = time;
+        updateData.status = 'completed';
+        
+        // 근무 시간 계산 (clockIn과 clockOut이 모두 있는 경우)
+        if (timeRecord.clockInTime) {
+          const clockInMinutes = parseInt(timeRecord.clockInTime.split(':')[0]) * 60 + parseInt(timeRecord.clockInTime.split(':')[1]);
+          const clockOutMinutes = parseInt(time.split(':')[0]) * 60 + parseInt(time.split(':')[1]);
+          let totalMinutes = clockOutMinutes - clockInMinutes;
+          
+          // 휴식 시간 계산
+          let breakMinutes = 0;
+          
+          if (timeRecord.breakStartTime1 && timeRecord.breakEndTime1) {
+            const breakStart1Minutes = parseInt(timeRecord.breakStartTime1.split(':')[0]) * 60 + parseInt(timeRecord.breakStartTime1.split(':')[1]);
+            const breakEnd1Minutes = parseInt(timeRecord.breakEndTime1.split(':')[0]) * 60 + parseInt(timeRecord.breakEndTime1.split(':')[1]);
+            breakMinutes += breakEnd1Minutes - breakStart1Minutes;
+          }
+          
+          if (timeRecord.breakStartTime2 && timeRecord.breakEndTime2) {
+            const breakStart2Minutes = parseInt(timeRecord.breakStartTime2.split(':')[0]) * 60 + parseInt(timeRecord.breakStartTime2.split(':')[1]);
+            const breakEnd2Minutes = parseInt(timeRecord.breakEndTime2.split(':')[0]) * 60 + parseInt(timeRecord.breakEndTime2.split(':')[1]);
+            breakMinutes += breakEnd2Minutes - breakStart2Minutes;
+          }
+          
+          if (timeRecord.breakStartTime3 && timeRecord.breakEndTime3) {
+            const breakStart3Minutes = parseInt(timeRecord.breakStartTime3.split(':')[0]) * 60 + parseInt(timeRecord.breakStartTime3.split(':')[1]);
+            const breakEnd3Minutes = parseInt(timeRecord.breakEndTime3.split(':')[0]) * 60 + parseInt(timeRecord.breakEndTime3.split(':')[1]);
+            breakMinutes += breakEnd3Minutes - breakStart3Minutes;
+          }
+          
+          updateData.breakMinutes = breakMinutes;
+          updateData.workingHours = convertMinutesToTimeString(totalMinutes - breakMinutes);
+        }
+        break;
+      case 'breakStart1':
+        updateData.breakStartTime1 = time;
+        break;
+      case 'breakEnd1':
+        updateData.breakEndTime1 = time;
+        break;
+      case 'breakStart2':
+        updateData.breakStartTime2 = time;
+        break;
+      case 'breakEnd2':
+        updateData.breakEndTime2 = time;
+        break;
+      case 'breakStart3':
+        updateData.breakStartTime3 = time;
+        break;
+      case 'breakEnd3':
+        updateData.breakEndTime3 = time;
+        break;
+    }
+
+    // 기록 업데이트
+    const updatedRecord = await prisma.timeRecord.update({
+      where: {
+        id: timeRecord.id
+      },
+      data: updateData
+    });
+
+    return res.json(updatedRecord);
+  } catch (error) {
+    console.error('시간 기록 생성 오류:', error);
+    return res.status(500).json({
+      error: '서버 오류',
+      details: error instanceof Error ? error.message : '알 수 없는 오류'
+    });
+  }
+});
+
+// 사용자의 시간 기록 조회 엔드포인트
+router.get('/time-entries', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: '인증이 필요합니다.' });
+    }
+    
+    const userId = req.user.id;
+    
+    // 쿼리 파라미터에서 날짜 범위 가져오기
+    const { startDate, endDate } = req.query;
+    
+    let whereClause: any = { userId };
+    
+    // 날짜 범위가 지정된 경우 필터링
+    if (startDate && endDate) {
+      whereClause.date = {
+        gte: startDate as string,
+        lte: endDate as string
+      };
+    }
+    
+    // 시간 기록 조회
+    const timeEntries = await prisma.timeRecord.findMany({
+      where: whereClause,
+      include: {
+        breaks: true,
+        location: true
+      },
+      orderBy: {
+        date: 'desc'
+      }
+    });
+    
+    return res.json(timeEntries);
+  } catch (error) {
+    console.error('시간 기록 조회 오류:', error);
+    
+    return res.status(500).json({
+      error: '서버 오류',
+      details: error instanceof Error ? error.message : '알 수 없는 오류'
+    });
+  }
+});
+
+// Place ID로 위치 정보 조회 엔드포인트 추가
+router.get('/places/:placeId', async (req, res) => {
+  try {
+    const { placeId } = req.params;
+    console.log('Place ID 조회 요청:', placeId);
+    console.log('API Key:', process.env.GOOGLE_MAPS_API_KEY); // API 키 확인용 (실제 운영환경에서는 제거)
+
+    // Google Places API 호출
+    const placeResponse = await googleMapsClient.placeDetails({
+      params: {
+        place_id: placeId,
+        fields: ['geometry'],
+        key: process.env.GOOGLE_MAPS_API_KEY || ''
+      }
+    });
+
+    console.log('Google Places API 응답:', placeResponse.data); // 응답 확인용
+
+    if (placeResponse.data.status !== 'OK' || !placeResponse.data.result?.geometry?.location) {
+      console.error('Places API 오류 응답:', placeResponse.data);
+      return res.status(404).json({
+        error: '위치 정보 없음',
+        details: '해당 Place ID의 위치 정보를 찾을 수 없습니다.'
+      });
+    }
+
+    const { lat, lng } = placeResponse.data.result.geometry.location;
+    
+    return res.json({
+      latitude: lat,
+      longitude: lng
+    });
+  } catch (error) {
+    console.error('Place ID 조회 오류:', error);
+    return res.status(500).json({
+      error: '서버 오류',
+      details: error instanceof Error ? error.message : '알 수 없는 오류'
+    });
+  }
+});
+
+// 오늘 날짜의 시간 기록 조회 엔드포인트
+router.get('/today', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: '인증이 필요합니다.' });
+    }
+    
+    // 현재 날짜를 시드니 시간대 기준으로 가져오기
+    const now = getCurrentNSWTime();
+    const today = formatInTimeZone(now, TIMEZONE, 'dd-MM-yyyy');
+    
+    // 오늘 날짜의 시간 기록 조회
+    const timeRecord = await prisma.timeRecord.findFirst({
+      where: {
+        userId: req.user.id,
+        date: today
+      }
+    });
+    
+    return res.json(timeRecord);
+  } catch (error) {
+    console.error('오늘 시간 기록 조회 오류:', error);
+    return res.status(500).json({
+      error: '서버 오류',
+      details: error instanceof Error ? error.message : '알 수 없는 오류'
     });
   }
 });

@@ -1,1315 +1,540 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { API_URL } from '../config/constants';
-import jsQR from 'jsqr';
-import { api, diagnostics } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
 
-// Helper function to get the current user ID from the token
-const getCurrentUserId = () => {
-  try {
-    // Try to get token from both localStorage and sessionStorage
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-    
-    if (!token) {
-      console.log("No token found for user ID extraction");
-      return null;
-    }
-    
-    // Clean the token if needed (remove quotes)
-    let cleanToken = token;
-    if (token.startsWith('"') && token.endsWith('"')) {
-      cleanToken = token.slice(1, -1);
-      console.log("Removed quotes from token for user ID extraction");
-    }
-    
-    // Parse the JWT token
-    const parts = cleanToken.split('.');
-    if (parts.length !== 3) {
-      console.log("Token doesn't appear to be in JWT format");
-      return null;
-    }
-    
-    const base64Url = parts[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    
-    const payload = JSON.parse(jsonPayload);
-    
-    // Check for userId or id in the payload
-    const userId = payload.userId || payload.id;
-    console.log("Extracted user ID from token:", userId);
-    
-    return userId;
-  } catch (error) {
-    console.error("Error extracting user ID from token:", error);
-    return null;
-  }
-};
+type ActionType = 'clockIn' | 'clockOut' | 'breakStart1' | 'breakEnd1' | 'breakStart2' | 'breakEnd2' | 'breakStart3' | 'breakEnd3';
 
-// Helper function to get user-specific localStorage key
-const getUserStorageKey = (key: string): string => {
-  const userId = getCurrentUserId();
-  return userId ? `${key}_${userId}` : key;
-};
-
-// Interface for offline time entries
-interface OfflineTimeEntry {
-  id: string;
-  userId: string;
-  placeId: string;
-  type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut';
-  timestamp: string;
-  location: {
-    latitude: number;
-    longitude: number;
-    accuracy?: number;
-  };
-  synced: boolean;
-}
-
+// QR 스캐너 컴포넌트 속성 정의
 interface QRScannerProps {
-  type: 'clockIn' | 'breakStart' | 'breakEnd' | 'clockOut';
+  type: ActionType
   onClose: () => void;
-  onScan: (data?: any) => void;
+  onScan: (data: any) => void;
+  offlineMode?: boolean;
+  debugMode?: boolean;
+  skipLocationCheck?: boolean;
 }
 
-// Function to save offline time entry
-const saveOfflineTimeEntry = (entry: Omit<OfflineTimeEntry, 'synced'>) => {
-  try {
-    // Get user-specific storage key
-    const storageKey = getUserStorageKey('offlineTimeEntries');
-    
-    // Get existing offline entries
-    const offlineEntriesJson = localStorage.getItem(storageKey);
-    const offlineEntries: OfflineTimeEntry[] = offlineEntriesJson 
-      ? JSON.parse(offlineEntriesJson) 
-      : [];
-    
-    // Add new entry with synced=false
-    const newEntry: OfflineTimeEntry = {
-      ...entry,
-      synced: false
-    };
-    
-    offlineEntries.push(newEntry);
-    
-    // Save back to localStorage
-    localStorage.setItem(storageKey, JSON.stringify(offlineEntries));
-    
-    console.log('Saved offline time entry:', newEntry);
-    return newEntry;
-  } catch (error) {
-    console.error('Error saving offline time entry:', error);
-    return null;
-  }
-};
 
-// Function to sync offline entries with server
-const syncOfflineEntries = async () => {
-  try {
-    const storageKey = getUserStorageKey('offlineTimeEntries');
-    const offlineEntriesJson = localStorage.getItem(storageKey);
-    if (!offlineEntriesJson) return;
+
+
+export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, offlineMode = false, debugMode = false, skipLocationCheck = false }) => {
+  const navigate = useNavigate();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [scanSuccess, setScanSuccess] = useState<{ message: string; data: any } | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [forcedDebugMode, setForcedDebugMode] = useState(false);
+  
+  // 중복 스캔 방지를 위한 참조
+  const lastScannedCode = useRef<string | null>(null);
+  const scanCooldown = useRef<boolean>(false);
+  
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerContainerId = 'qr-reader';
+  
+  // 타입별 타이틀 정의
+  const titles = {
+    clockIn: 'Clock In',
+    breakStart1: 'Break Start',
+    breakEnd1: 'Break End',
+    breakStart2: 'Break2 Start',
+    breakEnd2: 'Break2 End',
+    breakStart3: 'Break3 Start',
+    breakEnd3: 'Break3 End',
+    clockOut: 'Clock Out'
+  };
+  
+  // 컴포넌트 마운트 시 스캐너 초기화
+  useEffect(() => {
+    // URL 파라미터에서 디버그 모드 확인
+    const urlParams = new URLSearchParams(window.location.search);
+    const debugParam = urlParams.get('debug');
+    const skipLocationParam = urlParams.get('skipLocation');
     
-    const offlineEntries: OfflineTimeEntry[] = JSON.parse(offlineEntriesJson);
-    const unsyncedEntries = offlineEntries.filter(entry => !entry.synced);
+    if (debugParam === 'true') {
+      console.log('디버그 모드 활성화 (URL 파라미터)');
+      setDebugMode(true);
+      setForcedDebugMode(true);
+    }
     
-    if (unsyncedEntries.length === 0) return;
+    if (skipLocationParam === 'true') {
+      console.log('위치 확인 건너뛰기 활성화 (URL 파라미터)');
+      setSkipLocationCheck(true);
+    }
     
-    console.log(`Attempting to sync ${unsyncedEntries.length} offline entries`);
+    // 스캐너 초기화
+    startScanning();
     
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-    if (!token) {
-      console.error('No token available for syncing offline entries');
+    // 컴포넌트 언마운트 시 스캐너 정리
+    return () => {
+      stopScanning();
+    };
+  }, []);
+  
+  // 스캐너 시작 함수
+  const startScanning = () => {
+    if (scannerRef.current) {
+      stopScanning();
+    }
+    
+    try {
+      // 기존 스캐너 컨테이너 내부의 모든 요소 제거
+      const container = document.getElementById(scannerContainerId);
+      if (container) {
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+      }
+      
+      const html5QrCode = new Html5Qrcode(scannerContainerId);
+      scannerRef.current = html5QrCode;
+      
+      // 스캔 영역 크기를 카메라 화면에 맞게 조정
+      // 화면 크기의 70%로 설정하여 카메라 안에 들어가도록 함
+      const screenWidth = Math.min(window.innerWidth, 500); // 최대 너비 제한
+      const qrboxSize = Math.floor(screenWidth * 0.7);
+      
+      const config = {
+        fps: 10,
+        qrbox: { width: qrboxSize, height: qrboxSize },
+        formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
+        // 비디오 요소 스타일 직접 설정
+        videoConstraints: {
+          width: { ideal: screenWidth },
+          height: { ideal: screenWidth * 1.2 },
+          facingMode: "environment"
+        }
+      };
+      
+      html5QrCode.start(
+        { facingMode: "environment" },
+        config,
+        onScanSuccess,
+        onScanFailure
+      ).catch(err => {
+        console.error("카메라 시작 오류:", err);
+        setScanError("카메라를 시작할 수 없습니다. 권한을 확인해주세요.");
+      });
+      
+      // 비디오 요소 스타일 직접 조정
+      setTimeout(() => {
+        const videoElement = container?.querySelector('video');
+        if (videoElement) {
+          videoElement.style.objectFit = 'cover';
+          videoElement.style.width = '100%';
+          videoElement.style.height = '100%';
+          videoElement.style.borderRadius = '8px';
+        }
+      }, 500);
+    } catch (error) {
+      console.error('스캐너 초기화 오류:', error);
+      setScanError('카메라를 시작할 수 없습니다. 카메라 권한을 확인해주세요.');
+    }
+  };
+  
+  // 스캐너 중지 함수
+  const stopScanning = () => {
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      scannerRef.current.stop()
+        .catch(error => console.error('스캐너 중지 오류:', error));
+      scannerRef.current = null;
+    }
+  };
+  
+  // 스캔 성공 핸들러
+  const onScanSuccess = async (decodedText: string) => {
+    // 이미 처리 중이거나 스캔 쿨다운 중이면 무시
+    if (isProcessing || scanCooldown.current) {
+      console.log('스캔 처리 중 또는 쿨다운 중, 무시됨');
       return;
     }
-    
-    // Try to sync each entry
-    const updatedEntries = [...offlineEntries];
-    let syncedCount = 0;
-    
-    for (const entry of unsyncedEntries) {
-      try {
-        // Use the API client to sync the entry
-        await api.timeEntries.verifyLocation({
-          placeId: entry.placeId,
-          latitude: entry.location.latitude,
-          longitude: entry.location.longitude,
-          accuracy: entry.location.accuracy || 0,
-          type: entry.type,
-          timestamp: entry.timestamp
-        });
-        
-        // Mark as synced
-        const index = updatedEntries.findIndex(e => e.id === entry.id);
-        if (index !== -1) {
-          updatedEntries[index].synced = true;
-          syncedCount++;
-        }
-      } catch (error) {
-        console.error(`Failed to sync entry ${entry.id}:`, error);
-      }
-    }
-    
-    // Update localStorage with synced status
-    localStorage.setItem(storageKey, JSON.stringify(updatedEntries));
-    
-    if (syncedCount > 0) {
-      console.log(`Successfully synced ${syncedCount} offline entries`);
-    }
-    
-    return syncedCount;
-  } catch (error) {
-    console.error('Error syncing offline entries:', error);
-    return 0;
-  }
-};
 
-export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
-  // State variables
-  const [error, setError] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [selectedCamera, setSelectedCamera] = useState<string>('');
-  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
-  const [scanSuccess, setScanSuccess] = useState<{ message: string, data: any } | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [debugMode, setDebugMode] = useState(import.meta.env.DEV); // Only auto-enable in development
-  const [skipLocationCheck, setSkipLocationCheck] = useState(import.meta.env.PROD); // Auto-enable in production
-  const [serverAvailable, setServerAvailable] = useState<boolean | null>(null);
-  const [offlineMode, setOfflineMode] = useState(false);
-  const [pendingOfflineEntries, setPendingOfflineEntries] = useState(0);
-  const [forcedDebugMode, setForcedDebugMode] = useState(false); // Track if debug mode was forced due to server unavailability
-  
-  // Refs
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const animationRef = useRef<number | null>(null);
-  const videoContainerRef = useRef<HTMLDivElement>(null);
-  const scannerIntervalRef = useRef<number | null>(null);
-  
-  // Create a hidden canvas element for QR scanning
-  useEffect(() => {
-    // Create canvas element if it doesn't exist
-    if (!canvasRef.current) {
-      const canvas = document.createElement('canvas');
-      canvas.style.display = 'none';
-      document.body.appendChild(canvas);
-      canvasRef.current = canvas;
-      console.log("Created canvas element for QR scanning");
+    // 마지막 스캔 코드와 동일하면 무시
+    if (lastScannedCode.current === decodedText) {
+      console.log('동일한 QR 코드 스캔 무시');
+      return;
     }
-    
-    // Cleanup on unmount
-    return () => {
-      try {
-        // More robust cleanup with additional checks
-        if (canvasRef.current) {
-          // Check if the canvas is actually in the document before trying to remove it
-          if (document.body.contains(canvasRef.current)) {
-            document.body.removeChild(canvasRef.current);
-            console.log("Removed canvas element from document body");
-          } else {
-            console.log("Canvas element was not found in document body during cleanup");
-          }
-          // Clear the reference regardless
-          canvasRef.current = null;
-        }
-      } catch (error) {
-        console.error("Error during canvas cleanup:", error);
-      }
-    };
-  }, []);
-  
-  // Check for pending offline entries
-  const checkPendingOfflineEntries = useCallback(() => {
+
     try {
-      const storageKey = getUserStorageKey('offlineTimeEntries');
-      const offlineEntriesJson = localStorage.getItem(storageKey);
-      if (!offlineEntriesJson) {
-        setPendingOfflineEntries(0);
-        return 0;
+      setIsProcessing(true);
+      scanCooldown.current = true;
+      lastScannedCode.current = decodedText;
+
+      console.log('QR 코드 스캔 성공:', decodedText);
+      
+      // QR 코드 처리 로직...
+      const qrLocation = await parseQRLocation(decodedText);
+      if (!qrLocation) {
+        throw new Error('QR 코드 파싱 실패');
       }
       
-      const offlineEntries: OfflineTimeEntry[] = JSON.parse(offlineEntriesJson);
-      const unsyncedCount = offlineEntries.filter(entry => !entry.synced).length;
-      setPendingOfflineEntries(unsyncedCount);
-      return unsyncedCount;
-    } catch (error) {
-      console.error('Error checking pending offline entries:', error);
-      return 0;
-    }
-  }, []);
-  
-  // Check if the server is available
-  const checkServerAvailability = useCallback(async () => {
-    try {
-      // Don't automatically assume server is available in development
-      // Always check server availability regardless of environment
-      console.log("Checking server availability...");
-      
-      // Check if we have a valid token
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      if (token) {
+      // skipLocationCheck가 true인 경우에만 위치 확인을 건너뛰고, 
+      // 디버그 모드와 상관없이 위치 확인 수행
+      if (!skipLocationCheck) {
         try {
-          // Simple JWT parsing to check validity
-          const base64Url = token.split('.')[1];
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-          }).join(''));
+          // 사용자의 현재 위치 가져오기
+          const position = await getCurrentPosition();
+          const userLatitude = position.coords.latitude;
+          const userLongitude = position.coords.longitude;
           
-          const payload = JSON.parse(jsonPayload);
-          console.log("Token payload:", payload);
+          // QR 코드 위치와 사용자 위치 간의 거리 계산 (미터 단위)
+          const distance = calculateDistance(
+            userLatitude, 
+            userLongitude,
+            qrLocation.latitude, 
+            qrLocation.longitude
+          );
           
-          // Test token validity with server
-          try {
-            console.log("Testing token validity with server...");
-            const response = await fetch(`${API_URL}/health`, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              }
-            });
-            
-            if (response.ok) {
-              console.log("Server available at /health");
-              setServerAvailable(true);
-              setOfflineMode(false);
-              
-              // If server is available, try to sync any pending offline entries
-              const pendingCount = checkPendingOfflineEntries();
-              if (pendingCount > 0) {
-                console.log(`Found ${pendingCount} pending offline entries to sync`);
-                syncOfflineEntries().then(syncedCount => {
-                  if (syncedCount && syncedCount > 0) {
-                    checkPendingOfflineEntries();
-                  }
-                });
-              }
-              
-              return true;
-            }
-          } catch (error) {
-            console.error("Error testing token validity:", error);
+          console.log(`사용자 위치: ${userLatitude}, ${userLongitude}`);
+          console.log(`QR 코드 위치: ${qrLocation.latitude}, ${qrLocation.longitude}`);
+          console.log(`거리: ${distance.toFixed(2)}m`);
+          
+          // 허용 거리 (예: 100미터)
+          const MAX_ALLOWED_DISTANCE = 100; // 미터 단위
+          
+          if (distance > MAX_ALLOWED_DISTANCE) {
+            throw new Error(`현재 위치가 QR 코드 위치에서 너무 멉니다 (${distance.toFixed(0)}m). 근처에서 다시 시도하세요.`);
           }
-        } catch (e) {
-          console.error("Error decoding token:", e);
-        }
-      }
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      // Try multiple endpoints to check server availability
-      const endpoints = [
-        '/health',
-        '/api/health',
-        '/'
-      ];
-      
-      let isAvailable = false;
-      
-      for (const endpoint of endpoints) {
-        try {
-          console.log(`Trying endpoint: ${API_URL}${endpoint}`);
-          const response = await fetch(`${API_URL}${endpoint}`, {
-            method: 'GET',
-            signal: controller.signal
-          });
-          
-          if (response.ok) {
-            console.log(`Server available at ${endpoint}`);
-            isAvailable = true;
-            break;
-          } else {
-            console.log(`Endpoint ${endpoint} returned status: ${response.status}`);
+        } catch (locationError) {
+          if (locationError instanceof Error && locationError.message.includes('현재 위치가 QR 코드 위치에서 너무 멉니다')) {
+            throw locationError; // 위치 거리 오류는 그대로 전달
           }
-        } catch (error) {
-          console.log(`Error checking endpoint ${endpoint}:`, error instanceof Error ? error.message : error);
+          console.error('위치 확인 오류:', locationError);
+          throw new Error('위치 정보를 확인할 수 없습니다. 위치 권한을 확인하고 다시 시도하세요.');
         }
-      }
-      
-      clearTimeout(timeoutId);
-      
-      console.log("Server available:", isAvailable);
-      setServerAvailable(isAvailable);
-      
-      // Only set offline mode if server is truly unavailable
-      if (!isAvailable) {
-        setOfflineMode(true);
       } else {
-        setOfflineMode(false);
+        console.log('위치 확인 건너뜀 (skipLocationCheck가 true)');
       }
-      
-      // If server is available, try to sync any pending offline entries
-      if (isAvailable) {
-        const pendingCount = checkPendingOfflineEntries();
-        if (pendingCount > 0) {
-          console.log(`Found ${pendingCount} pending offline entries to sync`);
-          syncOfflineEntries().then(syncedCount => {
-            if (syncedCount && syncedCount > 0) {
-              checkPendingOfflineEntries();
-            }
-          });
-        }
-      }
-      
-      return isAvailable;
-    } catch (error) {
-      console.error("Error checking server availability:", error);
-      setServerAvailable(false);
-      setOfflineMode(true);
-      return false;
-    }
-  }, [checkPendingOfflineEntries]);
-  
-  // Get available cameras
-  const getCameras = useCallback(async () => {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(device => device.kind === 'videoinput');
-      setCameras(videoDevices);
-      
-      // Prefer back camera on mobile devices
-      if (isMobile()) {
-        const backCamera = videoDevices.find(device => 
-          device.label.toLowerCase().includes('back') || 
-          device.label.toLowerCase().includes('rear')
-        );
-        
-        if (backCamera) {
-          setSelectedCamera(backCamera.deviceId);
-          console.log("Selected back camera:", backCamera.label);
-        } else if (videoDevices.length > 0) {
-          setSelectedCamera(videoDevices[0].deviceId);
-        }
-      } else if (videoDevices.length > 0) {
-        // On desktop, just use the first camera
-        setSelectedCamera(videoDevices[0].deviceId);
-      }
-    } catch (err) {
-      console.error('Error getting cameras:', err);
-      setError('Unable to access camera. Please check permissions.');
-    }
-  }, []);
 
-  // Get user's geolocation
+      // 스캐너 즉시 중지
+      if (scannerRef.current) {
+        await scannerRef.current.stop();
+      }
+
+      // 시간 기록 생성
+      const data = await createTimeEntry(type, qrLocation.placeId, {
+        latitude: qrLocation.latitude,
+        longitude: qrLocation.longitude
+      });
+
+      // 성공 처리
+      onScan(data);
+      
+      // 1초 후 창 닫기
+      setTimeout(() => {
+        onClose();
+      }, 1000);
+
+    } catch (error) {
+      console.error('QR 스캔 처리 오류:', error);
+      setScanError(error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다');
+    } finally {
+      // 3초 후에 쿨다운 해제
+      setTimeout(() => {
+        scanCooldown.current = false;
+        setIsProcessing(false);
+      }, 3000);
+    }
+  };
+  
+  // 스캔 실패 핸들러
+  const onScanFailure = (error: any) => {
+    // 일반적인 스캔 실패는 무시 (지속적으로 스캔 시도)
+    // console.error('스캔 실패:', error);
+  };
+  
+  // 현재 위치 가져오기
   const getCurrentPosition = (): Promise<GeolocationPosition> => {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
-        reject(new Error('Geolocation is not supported by your browser'));
+        reject(new Error('이 브라우저에서는 위치 정보를 지원하지 않습니다.'));
         return;
       }
-
-      navigator.geolocation.getCurrentPosition(
-        (position) => resolve(position),
-        (error) => {
-          console.error('Geolocation error:', error);
-          if (error.code === 1) {
-            reject(new Error('Location access denied. Please enable location services.'));
-          } else if (error.code === 2) {
-            reject(new Error('Unable to determine your location. Please try again.'));
-          } else if (error.code === 3) {
-            reject(new Error('Location request timed out. Please try again.'));
-          } else {
-            reject(new Error('Failed to get your location. Please try again.'));
-          }
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0
-        }
-      );
+      
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 0
+      });
     });
   };
+  
+  // 두 지점 간의 거리 계산 (Haversine 공식)
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371e3; // 지구 반경 (미터)
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
 
-  // Process QR code data
-  const processQrCode = async (decodedText: string) => {
-    if (isProcessing) return;
-    
-    try {
-      setIsProcessing(true);
-      setError(null);
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-      console.log("QR Code detected:", decodedText);
-      
-      // Stop scanning
-      stopScanning();
-
-      // If we're in debug mode, bypass normal processing
-      if (debugMode) {
-        console.log("Debug mode enabled, bypassing normal processing");
-        
-        // Create mock data
-        const mockData = {
-          id: "debug-entry-" + Date.now(),
-          userId: "debug-user",
-          timestamp: new Date().toISOString(),
-          type: type,
-          location: {
-            latitude: 0,
-            longitude: 0
-          }
-        };
-        
-        // Set success state with message
-        const actionMessages = {
-          clockIn: 'Clock In successful! (Debug Mode)',
-          breakStart: 'Break Start recorded successfully! (Debug Mode)',
-          breakEnd: 'Break End recorded successfully! (Debug Mode)',
-          clockOut: 'Clock Out successful! (Debug Mode)'
-        };
-        
-        const successMessage = actionMessages[type] || 'Scan successful! (Debug Mode)';
-        
-        // Add a small delay to simulate processing
-        setTimeout(() => {
-          setScanSuccess({ message: successMessage, data: mockData });
-          setIsProcessing(false);
-        }, 1000);
-        
-        return;
-      }
-
-      // Normal processing with location check
-      try {
-        if (skipLocationCheck) {
-          await processWithLocation(decodedText, {
-            latitude: 0,
-            longitude: 0,
-            accuracy: 0
-          });
-        } else {
-          const position = await getCurrentPosition();
-          await processWithLocation(decodedText, {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy
-          });
-        }
-      } catch (geoError) {
-        console.error('Geolocation error:', geoError);
-        setError(geoError instanceof Error ? geoError.message : 'Failed to get your location');
-        setIsProcessing(false);
-        
-        // Restart scanning after a short delay
-        setTimeout(() => {
-          startScanning();
-        }, 1000);
-      }
-    } catch (error) {
-      console.error('Detailed scan error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to process scan');
-      setIsProcessing(false);
-      // Restart scanning after a short delay
-      setTimeout(() => {
-        startScanning();
-      }, 1000);
-    }
+    return R * c; // 미터 단위 거리
   };
-
-  // Process with location data
-  const processWithLocation = async (qrData: string, locationData: { latitude: number, longitude: number, accuracy?: number }) => {
+  
+  // QR 코드에서 위치 정보 파싱
+  const parseQRLocation = async (qrData: string): Promise<{ placeId: string, latitude: number, longitude: number } | null> => {
     try {
-      const now = new Date();
+      console.log('파싱 시도할 QR 데이터:', qrData);
       
-      // MODIFIED: Only use debug mode if explicitly enabled by user, not due to server availability
-      // This ensures we always try to save directly to the database when server is available
-      const shouldUseDebugMode = debugMode && !forcedDebugMode;
-      
-      // MODIFIED: Check if server is actually available before going into offline mode
-      const isServerActuallyAvailable = await checkServerAvailability();
-      
-      if (shouldUseDebugMode) {
-        console.log("Debug mode active: manually enabled");
-        console.log("QR Data:", qrData);
-        console.log("Location Data:", locationData);
+      if (typeof qrData === 'string' && qrData.trim().startsWith('Ch')) {
+        console.log('Google Place ID 감지:', qrData);
         
-        // If we're in offline mode, save the entry to localStorage
-        if (offlineMode && !isServerActuallyAvailable) {
-          console.log("Offline mode active, saving entry to local storage");
-          
-          // Get user ID from token if available
-          let userId = "offline-user";
-          const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-          if (token) {
-            try {
-              // Simple JWT parsing (not secure but works for basic extraction)
-              const base64Url = token.split('.')[1];
-              const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-              const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-              }).join(''));
-              
-              const payload = JSON.parse(jsonPayload);
-              if (payload.id) {
-                userId = payload.id;
-              }
-            } catch (e) {
-              console.error("Error extracting user ID from token:", e);
-            }
-          }
-          
-          // Create offline entry
-          const offlineEntry = {
-            id: "offline-" + Date.now(),
-            userId,
-            placeId: qrData,
-            type,
-            timestamp: now.toISOString(),
-            location: locationData
-          };
-          
-          // Save to localStorage
-          const savedEntry = saveOfflineTimeEntry(offlineEntry);
-          
-          if (savedEntry) {
-            checkPendingOfflineEntries();
-            
-            // Set success state with message
-            const actionMessages = {
-              clockIn: 'Clock In saved offline! Will sync later.',
-              breakStart: 'Break Start saved offline! Will sync later.',
-              breakEnd: 'Break End saved offline! Will sync later.',
-              clockOut: 'Clock Out saved offline! Will sync later.'
-            };
-            
-            const successMessage = actionMessages[type] || 'Entry saved offline! Will sync later.';
-            console.log("Offline entry saved:", successMessage);
-            
-            setScanSuccess({ 
-              message: successMessage, 
-              data: savedEntry 
-            });
-            setIsProcessing(false);
-            return;
-          }
-        }
-        
-        // Create mock data for debug mode (not offline)
-        const mockData = {
-          id: "debug-entry-" + Date.now(),
-          userId: "debug-user",
-          timestamp: now.toISOString(),
-          type: type,
-          location: {
-            latitude: locationData.latitude,
-            longitude: locationData.longitude
-          },
-          placeId: qrData // Include the scanned QR code data
-        };
-        
-        // Set success state with message
-        const actionMessages = {
-          clockIn: 'Clock In successful! (Debug Mode)',
-          breakStart: 'Break Start recorded successfully! (Debug Mode)',
-          breakEnd: 'Break End recorded successfully! (Debug Mode)',
-          clockOut: 'Clock Out successful! (Debug Mode)'
-        };
-        
-        const successMessage = actionMessages[type] || 'Scan successful! (Debug Mode)';
-        console.log("Debug mode success:", successMessage);
-        
-        // Add a small delay to simulate processing
-        setTimeout(() => {
-          setScanSuccess({ message: successMessage, data: mockData });
-          setIsProcessing(false);
-        }, 1000);
-        
-        return;
-      }
-      
-      // MODIFIED: Always attempt to use the API if we're not in debug mode
-      // This ensures we prioritize direct database saving
-      console.log("Attempting to use API for direct database saving");
-      
-      // Check if token is valid and refresh if needed
-      let tokenValid = true;
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      
-      if (!token) {
-        console.error("No token available");
-        tokenValid = false;
-      } else {
         try {
-          // Check if token is expired
-          const base64Url = token.split('.')[1];
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-          }).join(''));
+          const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+          const response = await fetch(`${API_URL}/api/time-entries/places/${qrData.trim()}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
           
-          const payload = JSON.parse(jsonPayload);
-          const expiryTime = payload.exp * 1000; // Convert to milliseconds
-          const currentTime = Date.now();
-          
-          if (currentTime >= expiryTime) {
-            console.log("Token expired, attempting to refresh");
-            tokenValid = await api.auth.refreshToken();
-            console.log("Token refresh result:", tokenValid ? "Success" : "Failed");
+          if (!response.ok) {
+            throw new Error(`Place API 응답 오류: ${response.status}`);
           }
-        } catch (e) {
-          console.error("Error checking token expiration:", e);
-          // Try to refresh anyway
-          tokenValid = await api.auth.refreshToken();
-          console.log("Token refresh after error:", tokenValid ? "Success" : "Failed");
-        }
-      }
-      
-      if (!tokenValid && !isServerActuallyAvailable) {
-        console.error("No valid token available and server not available, falling back to offline mode");
-        setOfflineMode(true);
-        
-        // Recursively call this function - it will now use the offline path
-        return processWithLocation(qrData, locationData);
-      }
-      
-      // MODIFIED: Always attempt API call first, even if token is invalid
-      // The API call might still work or provide a better error message
-      
-      // Prepare the data for the API call
-      const apiData = {
-        placeId: qrData,
-        type,
-        timestamp: now.toISOString(),
-        latitude: locationData.latitude,
-        longitude: locationData.longitude,
-        accuracy: locationData.accuracy || 0
-      };
-
-      try {
-        // Make the API call using the api client
-        const data = await api.timeEntries.verifyLocation(apiData);
-        
-        // Set success state with message
-        const actionMessages = {
-          clockIn: 'Clock In successful!',
-          breakStart: 'Break Start recorded successfully!',
-          breakEnd: 'Break End recorded successfully!',
-          clockOut: 'Clock Out successful!'
-        };
-        
-        const successMessage = actionMessages[type] || 'Scan successful!';
-        setScanSuccess({ message: successMessage, data: data.data || data });
-        
-        // Since we successfully made an API call, check if we have any offline entries to sync
-        if (pendingOfflineEntries > 0) {
-          syncOfflineEntries();
-        }
-      } catch (error) {
-        console.error('Error processing scan:', error);
-        
-        // If there's a network error or server is unavailable, try to save offline
-        if ((error instanceof TypeError && error.message.includes('network')) || !isServerActuallyAvailable) {
-          console.log("Network error or server unavailable, attempting to save offline");
-          setServerAvailable(false);
-          setOfflineMode(true);
           
-          // Recursively call this function again - it will now use the offline path
-          return processWithLocation(qrData, locationData);
+          const placeData = await response.json();
+          console.log('Place API 응답:', placeData);
+          
+          if (!placeData.latitude || !placeData.longitude) {
+            throw new Error('위치 정보가 없습니다');
+          }
+          
+          return {
+            placeId: qrData.trim(),
+            latitude: placeData.latitude,
+            longitude: placeData.longitude
+          };
+        } catch (error) {
+          console.error('Place ID 조회 오류:', error);
+          throw new Error('위치 정보를 가져올 수 없습니다');
         }
-        
-        setError(error instanceof Error ? error.message : 'An unknown error occurred');
-      } finally {
-        setIsProcessing(false);
       }
+      
+      throw new Error('지원되지 않는 QR 코드 형식입니다');
     } catch (error) {
-      console.error('API error:', error);
-      let errorMessage = error instanceof Error ? error.message : 'Failed to process time entry';
-      setError(errorMessage);
-      setIsProcessing(false);
+      console.error('QR 코드 파싱 오류:', error);
+      throw error;
     }
   };
+  
+  // 닫기 버튼 핸들러
+  const handleClose = () => {
+    stopScanning();
 
-  // Handle success confirmation
-  const handleSuccessConfirm = () => {
+  // 카메라 스트림 명시적으로 중지
+  if (scannerRef.current) {
+    scannerRef.current.clear();
+  }
+    onClose();
+  };
+  
+  // 성공 후 닫기 핸들러
+  const handleSuccessClose = () => {
     if (scanSuccess) {
       onScan(scanSuccess.data);
     }
-  };
-
-  // Stop scanning and release resources
-  const stopScanning = useCallback(() => {
-    try {
-      // Stop animation frame
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-        animationRef.current = null;
-      }
-      
-      // Stop scanner interval if it exists
-      if (scannerIntervalRef.current) {
-        clearInterval(scannerIntervalRef.current);
-        scannerIntervalRef.current = null;
-      }
-      
-      // Stop media stream
-      if (streamRef.current) {
-        const tracks = streamRef.current.getTracks();
-        tracks.forEach(track => {
-          try {
-            track.stop();
-          } catch (e) {
-            console.error("Error stopping track:", e);
-          }
-        });
-        streamRef.current = null;
-      }
-      
-      // Clear video source safely
-      if (videoRef.current) {
-        try {
-          videoRef.current.pause();
-          videoRef.current.srcObject = null;
-        } catch (e) {
-          console.error("Error clearing video source:", e);
-        }
-      }
-    } catch (error) {
-      console.error("Error in stopScanning:", error);
-    }
-  }, []);
-  
-  // jsQR scanning loop
-  const scanQRCode = useCallback(() => {
-    // Check if component is still mounted and all refs are available
-    if (!videoRef.current || !canvasRef.current || !streamRef.current) {
-      console.log("Missing refs for scanning:", {
-        video: !!videoRef.current,
-        canvas: !!canvasRef.current,
-        stream: !!streamRef.current
-      });
-      
-      // Try again in a moment if video isn't ready, but only if we still have references
-      if (videoRef.current || streamRef.current) {
-        setTimeout(() => {
-          // Check again before recursing
-          if (videoRef.current && streamRef.current) {
-            scanQRCode();
-          } else {
-            console.log("Component unmounted, stopping scan loop");
-          }
-        }, 500);
-      } else {
-        console.log("Component appears to be unmounted, not continuing scan loop");
-      }
-      return;
-    }
-    
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    
-    try {
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      
-      if (!ctx) {
-        console.error("Failed to get canvas context");
-        return;
-      }
-      
-      // Check if video is ready
-      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-        console.log("Video not ready yet, waiting...");
-        animationRef.current = requestAnimationFrame(scanQRCode);
-        return;
-      }
-      
-      // Set canvas dimensions to match video
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      // Draw video frame to canvas
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      // Get image data for QR code scanning
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      
-      // Scan for QR code
-      const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: "dontInvert",
-      });
-      
-      // Process QR code if found
-      if (code) {
-        console.log("QR code detected with data:", code.data);
-        processQrCode(code.data);
-        return;
-      }
-    } catch (error) {
-      console.error("Error in QR scanning loop:", error);
-      // If we hit an error, wait a bit before continuing to avoid rapid error loops
-      setTimeout(() => {
-        // Check if component is still mounted before continuing
-        if (videoRef.current && streamRef.current) {
-          animationRef.current = requestAnimationFrame(scanQRCode);
-        }
-      }, 1000);
-      return;
-    }
-    
-    // Continue scanning only if component is still mounted
-    if (videoRef.current && streamRef.current) {
-      animationRef.current = requestAnimationFrame(scanQRCode);
-    } else {
-      console.log("Component unmounted during scan loop, stopping");
-    }
-  }, [processQrCode]);
-  
-  // Start camera and scanning
-  const startScanning = useCallback(async () => {
-    if (!selectedCamera) {
-      setError('No camera selected. Please select a camera.');
-      return;
-    }
-
-    try {
-      // Stop any existing stream
-      stopScanning();
-      
-      // Get camera stream
-      const constraints: MediaStreamConstraints = {
-        video: {
-          deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
-          facingMode: selectedCamera ? undefined : 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 15 }
-        }
-      };
-      
-      console.log("Requesting camera with constraints:", constraints);
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      
-      // Check if component is still mounted by verifying videoRef
-      if (!videoRef.current) {
-        console.log("Component unmounted during camera initialization, cleaning up");
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-      
-      streamRef.current = stream;
-      
-      if (videoRef.current) {
-        try {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            console.log("Video metadata loaded, playing video");
-            if (videoRef.current) {
-              videoRef.current.play().catch(err => {
-                console.error("Error playing video:", err);
-              });
-            }
-          };
-          
-          // Fallback if onloadedmetadata doesn't fire
-          setTimeout(() => {
-            if (videoRef.current && videoRef.current.paused) {
-              console.log("Fallback: trying to play video after timeout");
-              videoRef.current.play().catch(err => {
-                console.error("Error playing video in fallback:", err);
-              });
-            }
-          }, 1000);
-        } catch (videoErr) {
-          console.error("Error setting up video element:", videoErr);
-          // Clean up the stream if we couldn't set it up properly
-          stream.getTracks().forEach(track => track.stop());
-          setError('Failed to initialize video. Please try again.');
-          return;
-        }
-      } else {
-        console.error("Video element not found");
-        // Clean up the stream if video element is missing
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-      
-      // Start jsQR scanning loop after a short delay to ensure video is ready
-      setTimeout(() => {
-        // Check again if component is still mounted
-        if (videoRef.current && streamRef.current) {
-          console.log("Starting QR scanning loop");
-          scanQRCode();
-        } else {
-          console.log("Component unmounted before starting scan loop");
-        }
-      }, 1500);
-    } catch (err) {
-      console.error('Error starting camera:', err);
-      setError('Failed to start camera. Please check permissions and try again.');
-    }
-  }, [selectedCamera, scanQRCode, stopScanning]);
-  
-  // Toggle debug mode
-  const toggleDebugMode = () => {
-    setDebugMode(prev => !prev);
+    handleClose();
   };
   
-  // Simulate a successful QR scan for testing
-  const simulateSuccessfulScan = () => {
-    if (!isProcessing && debugMode) {
-      setIsProcessing(true);
-      // Use one of our actual place IDs for testing
-      const testQRData = "ChIJMVmxBW2wEmsROqYsviTainU"; // Home location
-      console.log("Simulating successful scan with data:", testQRData);
-      
-      // Create mock data directly without API call
-      const mockData = {
-        id: "debug-entry-" + Date.now(),
-        userId: "debug-user",
-        timestamp: new Date().toISOString(),
-        type: type,
-        location: {
-          latitude: -33.8977679,
-          longitude: 151.1544713
-        },
-        placeId: testQRData
-      };
-      
-      // Set success state with message
-      const actionMessages = {
-        clockIn: 'Clock In successful! (Debug Mode)',
-        breakStart: 'Break Start recorded successfully! (Debug Mode)',
-        breakEnd: 'Break End recorded successfully! (Debug Mode)',
-        clockOut: 'Clock Out successful! (Debug Mode)'
-      };
-      
-      const successMessage = actionMessages[type] || 'Scan successful! (Debug Mode)';
-      
-      // Add a small delay to simulate processing
-      setTimeout(() => {
-        setScanSuccess({ message: successMessage, data: mockData });
-        setIsProcessing(false);
-      }, 1000);
-    }
-  };
-  
-  // Handle login redirect
-  const handleLoginRedirect = () => {
-    // Clear any existing tokens
-    localStorage.removeItem('token');
-    sessionStorage.removeItem('token');
-    
-    // Redirect to login page
-    window.location.href = '/login';
-  };
-  
-  // Initialize on mount
-  useEffect(() => {
-    getCameras();
-    
-    // Check server availability first
-    checkServerAvailability().then(isAvailable => {
-      if (!isAvailable) {
-        console.log("Server is not available. Setting offline mode.");
-        setOfflineMode(true);
-        
-        // Only force debug mode if explicitly requested
-        if (import.meta.env.VITE_FORCE_DEBUG_MODE === 'true') {
-          console.log("Forcing debug mode due to configuration.");
-          setDebugMode(true);
-          setForcedDebugMode(true);
-        }
-      } else if (import.meta.env.DEV) {
-        // In development, enable debug mode by default but don't force it
-        setDebugMode(true);
-        setForcedDebugMode(false);
-      }
-    });
-    
-    return () => {
-      stopScanning();
-    };
-  }, []);
-  
-  // Start scanning when camera is selected
-  useEffect(() => {
-    if (selectedCamera) {
-      startScanning();
-    }
-    
-    return () => {
-      stopScanning();
-    };
-  }, [selectedCamera]);
-  
-  // Handle camera selection change
-  const handleCameraChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedCamera(e.target.value);
-  };
-  
-  // Reset scanner
-  const resetScanner = () => {
-    setScanSuccess(null);
+  // 재시도 버튼 핸들러
+  const handleRetry = () => {
     setScanError(null);
+    setScanSuccess(null);
     setIsProcessing(false);
-    
-    // Restart the scanner if it was stopped
+    scanCooldown.current = false;
+    lastScannedCode.current = null;
     startScanning();
   };
   
-  // Handle retry button click
-  const handleRetry = () => {
-    resetScanner();
+  // 시간 기록 생성 함수 수정
+  const createTimeEntry = async (type: ActionType, placeId: string, location: { latitude: number, longitude: number, accuracy?: number }): Promise<any> => {
+    try {
+      // 현재 시간 포맷팅 (HH:MM)
+      const now = new Date();
+      const formattedTime = now.toLocaleTimeString('ko-KR', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: false 
+      });
+      
+      // 현재 날짜 포맷팅 (DD-MM-YYYY)
+      const day = String(now.getDate()).padStart(2, '0');
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const year = now.getFullYear();
+      const formattedDate = `${day}-${month}-${year}`;
+      
+      // 요청 데이터 준비
+      let requestData: any = {
+        type: type,
+        time: formattedTime,
+        date: formattedDate,
+        placeId: placeId
+      };
+      
+      // 휴식 종료일 경우 휴식 시간 계산 추가
+      if (type === 'breakEnd1' || type === 'breakEnd2' || type === 'breakEnd3') {
+        // 휴식 번호 추출 (1, 2, 3)
+        const breakNumber = type.charAt(type.length - 1);
+        
+        // 해당 휴식의 시작 시간 가져오기
+        const userId = localStorage.getItem('userId') || sessionStorage.getItem('userId');
+        const storageKey = `user_${userId}_lastActions`;
+        const storedActionsStr = localStorage.getItem(storageKey) || '{}';
+        const storedActions = JSON.parse(storedActionsStr);
+        
+        // 시작 시간이 있는지 확인
+        const startType = `breakStart${breakNumber}` as ActionType;
+        const startAction = storedActions[startType];
+        
+        if (startAction && startAction.time) {
+          // 시작 시간과 현재 시간을 Date 객체로 변환
+          const startParts = startAction.time.split(':');
+          const startDate = new Date();
+          startDate.setHours(parseInt(startParts[0], 10));
+          startDate.setMinutes(parseInt(startParts[1], 10));
+          
+          const endParts = formattedTime.split(':');
+          const endDate = new Date();
+          endDate.setHours(parseInt(endParts[0], 10));
+          endDate.setMinutes(parseInt(endParts[1], 10));
+          
+          // 날짜가 바뀌었을 경우를 고려 (예: 23:50에 시작해서 00:10에 종료)
+          let timeDiff = (endDate.getTime() - startDate.getTime()) / (1000 * 60); // 분 단위
+          if (timeDiff < 0) {
+            timeDiff += 24 * 60; // 하루(24시간)를 분으로 추가
+          }
+          
+          // 휴식 시간 추가
+          requestData.breakMinutes = Math.round(timeDiff);
+          console.log(`Break ${breakNumber} minutes calculated:`, requestData.breakMinutes);
+        }
+      }
+      
+      console.log('서버로 보내는 데이터:', JSON.stringify(requestData, null, 2));
+      
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      
+      if (!API_URL) {
+        console.warn('API_URL is temporarily undefined, retrying...');
+        // API_URL이 undefined일 때 잠시 대기 후 재시도
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      // API 요청
+      const response = await fetch(`${API_URL}/api/time-entries`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(requestData)
+      });
+      
+      console.log('서버 응답 상태:', response.status, response.statusText);
+      
+      // 응답 데이터 파싱
+      const responseText = await response.text();
+      console.log('서버 응답 원본:', responseText);
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+        console.log('서버 응답 파싱 결과:', data);
+      } catch (e) {
+        console.error('JSON 파싱 오류:', e);
+        throw new Error('서버 응답을 파싱할 수 없습니다: ' + responseText);
+      }
+      
+      if (!response.ok) {
+        throw new Error(data.message || data.error || `서버 오류: ${response.status}`);
+      }
+      
+      // 성공 시 로컬 스토리지에 액션 저장
+      const userId = localStorage.getItem('userId') || sessionStorage.getItem('userId');
+      const storageKey = `user_${userId}_lastActions`;
+      const storedActionsStr = localStorage.getItem(storageKey) || '{}';
+      let storedActions;
+      
+      try {
+        storedActions = JSON.parse(storedActionsStr);
+      } catch (e) {
+        console.error('저장된 액션 파싱 오류:', e);
+        storedActions = {};
+      }
+      
+      // 액션 저장
+      storedActions[type] = {
+        time: formattedTime,
+        timestamp: now.toISOString()
+      };
+      
+      localStorage.setItem(storageKey, JSON.stringify(storedActions));
+      console.log('로컬 스토리지에 저장된 액션:', storedActions);
+      
+      return data;
+    } catch (error) {
+      console.error('시간 기록 생성 오류:', error);
+      throw new Error('시간 기록 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    }
   };
   
-  const titles = {
-    clockIn: 'Clock In',
-    breakStart: 'Break Start',
-    breakEnd: 'Break End',
-    clockOut: 'Clock Out'
-  };
-
-  const runDiagnostics = async () => {
-    console.log('Running diagnostics...');
-    
-    // Test authentication
-    const authResult = await diagnostics.testAuth();
-    console.log('Auth test result:', authResult);
-    
-    // Test date handling
-    const dateResult = await diagnostics.testDateHandling();
-    console.log('Date test result:', dateResult);
-    
-    // Show results in an alert since we don't have toast
-    alert(`
-      Diagnostic Results:
-      
-      Auth Test: ${authResult.success ? '✅ Success' : '❌ Failed'}
-      ${!authResult.success ? 'Error: ' + JSON.stringify(authResult.error) : ''}
-      
-      Date Test: ${dateResult.success ? '✅ Success' : '❌ Failed'}
-      ${!dateResult.success ? 'Error: ' + JSON.stringify(dateResult.error) : ''}
-      
-      See console for full details
-    `);
-  };
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white p-4 rounded-lg w-full max-w-md">
-        {/* Hidden canvas for QR scanning */}
-        <canvas ref={canvasRef} className="hidden" width="640" height="480" />
-        
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">QR Scanner - {titles[type]}</h2>
-          
-          {/* Status indicators */}
-          <div className="status-indicators flex flex-col items-end text-xs">
-            {/* Server status indicator */}
-            <div className={`server-status px-2 py-1 rounded mb-1 ${
-              serverAvailable === true 
-                ? 'bg-green-100 text-green-800' 
-                : serverAvailable === false 
-                  ? 'bg-red-100 text-red-800' 
-                  : 'bg-gray-100 text-gray-800'
-            }`}>
-              {serverAvailable === true 
-                ? '✓ Server Online' 
-                : serverAvailable === false 
-                  ? '✗ Server Offline' 
-                  : '? Server Status Unknown'}
-            </div>
-            
-            {/* Offline mode indicator */}
-            {offlineMode && (
-              <div className="offline-mode-indicator bg-yellow-100 text-yellow-800 px-2 py-1 rounded mb-1">
-                <span>📱 Offline Mode</span>
-                {pendingOfflineEntries > 0 && (
-                  <span className="pending-syncs ml-1 bg-yellow-200 px-1 rounded-full">
-                    {pendingOfflineEntries}
-                  </span>
-                )}
-              </div>
-            )}
-            
-            {/* Debug mode indicator */}
-            {debugMode && (
-              <div className={`debug-mode-indicator ${forcedDebugMode ? 'bg-orange-100 text-orange-800' : 'bg-purple-100 text-purple-800'} px-2 py-1 rounded`}>
-                🐞 Debug Mode {forcedDebugMode ? '(Forced)' : ''}
-              </div>
-            )}
-          </div>
+    <div className="fixed inset-0 bg-black z-50 flex flex-col">
+      {/* 헤더 */}
+      <div className="flex justify-between items-center p-8 ">
+        <h2 className="text-xl font-bold text-[#FDCF17]">{titles[type]}</h2>
+        <button 
+          onClick={handleClose}
+          className="text-[#FDCF17] text-[30px]"
+        >
+          ✕
+        </button>
+      </div>
+      
+      {/* 스캐너 영역 - 텍스트를 카메라 바로 위에 배치 */}
+      <div className="flex-1 flex flex-col items-center justify-center overflow-hidden p-4">
+        {/* 안내 메시지를 여기로 이동 - 카메라 바로 위에 위치 */}
+        <div className="text-center py-3 mb-2">
+          <p className="text-xl font-medium text-white">Scan your QR Code</p>
         </div>
         
-        {/* Manual sync button */}
-        {pendingOfflineEntries > 0 && serverAvailable && (
-          <div className="mb-4">
-            <button 
-              onClick={() => syncOfflineEntries()}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded flex items-center justify-center"
-              disabled={isProcessing}
-            >
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Sync {pendingOfflineEntries} Offline {pendingOfflineEntries === 1 ? 'Entry' : 'Entries'}
-            </button>
+        {/* 스캐너 - 크기 제한 및 가운데 정렬 */}
+        <div className="w-full max-w-md aspect-[4/5] relative rounded-lg overflow-hidden">
+          <div id={scannerContainerId} className="w-full h-full absolute inset-0"></div>
+          
+          {/* 스캔 프레임 - 카메라 안에 들어가도록 조정 */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            {/* <div className="border-2 border-white w-4/5 h-4/5 rounded-lg relative">
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-white rounded-tl-lg"></div>
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-white rounded-tr-lg"></div>
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-white rounded-bl-lg"></div>
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-white rounded-br-lg"></div>
+            </div> */}
+          </div>
+        </div>
+      </div>
+      
+      {/* 상태 메시지 */}
+      <div className="p-4">
+        {isProcessing && !scanError && (
+          <div className="bg-[#FDCF17] border border-yellow-200 text-black-800 font-montserrat font-semibold p-4 rounded-lg text-center">
+            <p>Processing...</p>
           </div>
         )}
         
-        {/* QR Scanner content */}
-        {!scanSuccess && !scanError && (
-          <>
-            <div className="relative aspect-square w-full mb-4 bg-gray-100 rounded overflow-hidden">
-              {/* QR Scanner video */}
-              <div ref={videoContainerRef} className="absolute inset-0">
-                <video ref={videoRef} className="h-full w-full object-cover" />
-              </div>
-              
-              {/* Scanning overlay */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="scanner-overlay">
-                  <div className="scanner-line"></div>
-                </div>
-              </div>
-              
-              {/* Processing indicator */}
-              {isProcessing && (
-                <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                  <div className="text-white text-center">
-                    <div className="spinner mb-2"></div>
-                    <p>Processing...</p>
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            {/* Controls */}
-            <div className="flex flex-col space-y-4">
-              {/* Debug mode toggle */}
-              <div className="flex items-center justify-between">
-                <label htmlFor="debug-mode" className="text-sm font-medium text-gray-700">
-                  Debug Mode
-                  <span className="ml-2 text-xs text-gray-500">(Bypasses API calls)</span>
-                </label>
-                <div className="relative inline-block w-10 mr-2 align-middle select-none">
-                  <input 
-                    type="checkbox" 
-                    id="debug-mode" 
-                    checked={debugMode} 
-                    onChange={(e) => setDebugMode(e.target.checked)}
-                    className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
-                  />
-                  <label 
-                    htmlFor="debug-mode" 
-                    className={`toggle-label block overflow-hidden h-6 rounded-full cursor-pointer ${debugMode ? 'bg-green-400' : 'bg-gray-300'}`}
-                  ></label>
-                </div>
-              </div>
-              
-              {/* Skip location check toggle */}
-              <div className="flex items-center justify-between">
-                <label htmlFor="skip-location" className="text-sm font-medium text-gray-700">
-                  Skip Location Check
-                  <span className="ml-2 text-xs text-gray-500">(For testing only)</span>
-                </label>
-                <div className="relative inline-block w-10 mr-2 align-middle select-none">
-                  <input 
-                    type="checkbox" 
-                    id="skip-location" 
-                    checked={skipLocationCheck} 
-                    onChange={(e) => setSkipLocationCheck(e.target.checked)}
-                    className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
-                  />
-                  <label 
-                    htmlFor="skip-location" 
-                    className={`toggle-label block overflow-hidden h-6 rounded-full cursor-pointer ${skipLocationCheck ? 'bg-green-400' : 'bg-gray-300'}`}
-                  ></label>
-                </div>
-              </div>
-              
-              {/* Action buttons */}
-              <div className="flex space-x-2">
-                <button 
-                  onClick={onClose} 
-                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleRetry} 
-                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded"
-                >
-                  Reset
-                </button>
-              </div>
-              
-              {/* Debug test button */}
-              {debugMode && (
-                <>
-                  <button 
-                    onClick={simulateSuccessfulScan}
-                    className="w-full mt-2 bg-purple-500 hover:bg-purple-600 text-white py-2 px-4 rounded"
-                    disabled={isProcessing}
-                  >
-                    Test Scan (Debug)
-                  </button>
-                  <button 
-                    onClick={runDiagnostics}
-                    className="w-full mt-2 bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded text-xs"
-                  >
-                    Run Diagnostics
-                  </button>
-                </>
-              )}
-            </div>
-          </>
-        )}
-        
-        {/* Success message */}
-        {scanSuccess && (
-          <div className="text-center">
-            <div className="bg-green-100 text-green-800 p-4 rounded-lg mb-4">
-              <svg className="w-6 h-6 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <p className="font-medium">{scanSuccess.message}</p>
-              {offlineMode && (
-                <p className="text-xs mt-2">Entry saved offline and will sync when connection is restored.</p>
-              )}
-            </div>
-            <button 
-              onClick={() => {
-                // Call onScan with the scan data before closing
-                if (scanSuccess) {
-                  console.log("Sending scan data to parent component:", scanSuccess.data);
-                  onScan(scanSuccess.data);
-                }
-                onClose();
-              }} 
-              className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded w-full"
-            >
-              Close
-            </button>
-          </div>
-        )}
-        
-        {/* Error message */}
         {scanError && (
-          <div className="text-center">
-            <div className="bg-red-100 text-red-800 p-4 rounded-lg mb-4">
-              <svg className="w-6 h-6 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <p className="font-medium">Error</p>
-              <p className="text-sm">{scanError}</p>
-            </div>
-            <div className="flex space-x-2">
-              <button 
-                onClick={onClose} 
-                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded"
+          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
+            <p>{scanError}</p>
+            <div className="mt-3 flex justify-center">
+              <button
+                onClick={handleRetry}
+                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded"
               >
-                Close
-              </button>
-              <button 
-                onClick={handleRetry} 
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded"
-              >
-                Try Again
+                다시 시도
               </button>
             </div>
           </div>
@@ -1317,8 +542,4 @@ export function QRScanner({ type, onClose, onScan }: QRScannerProps) {
       </div>
     </div>
   );
-}
-
-function isMobile() {
-  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-}
+};

@@ -29,7 +29,10 @@ export interface User {
   export interface TimeEntry {
     id: string;
     userId: string;
-    type: 'CLOCK_IN' | 'CLOCK_OUT' | 'BREAK_START' | 'BREAK_END';
+    type: 'CLOCK_IN' | 'CLOCK_OUT' | 
+          'BREAK_START_1' | 'BREAK_END_1' | 
+          'BREAK_START_2' | 'BREAK_END_2' | 
+          'BREAK_START_3' | 'BREAK_END_3';
     timestamp: Date;
     createdAt: Date;
     updatedAt: Date;
