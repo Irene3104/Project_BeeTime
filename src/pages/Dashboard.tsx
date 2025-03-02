@@ -435,15 +435,15 @@ export const Dashboard = () => {
     }
   }; 
   
-  // Function to reset all actions (for testing)
-  const resetAllActions = () => {
-    if (userId) {
-      const storageKey = getUserStorageKey('lastActions');
-      localStorage.removeItem(storageKey);
-      setLastAction(null);
-      setSuccessMessage('All actions have been reset');
-    }
-  };
+  // // Function to reset all actions (for testing)
+  // const resetAllActions = () => {
+  //   if (userId) {
+  //     const storageKey = getUserStorageKey('lastActions');
+  //     localStorage.removeItem(storageKey);
+  //     setLastAction(null);
+  //     setSuccessMessage('All actions have been reset');
+  //   }
+  // };
 
   return (
     <Layout>
@@ -607,14 +607,14 @@ export const Dashboard = () => {
       )}
 
       {/* Reset button (for testing) */}
-      <div className="mt-8">
+      {/* <div className="mt-8">
                 <button 
                   onClick={resetAllActions}
                   className="text-xs text-gray-500 underline"
                 >
                   Reset All Actions
                 </button>
-              </div>
+              </div> */}
     </Layout>
   );
 };

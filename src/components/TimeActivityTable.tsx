@@ -30,6 +30,7 @@ export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecord
     fieldName: string;
   } | null>(null);
   const [showExtendedBreaks, setShowExtendedBreaks] = useState(false);
+  const [timeValue, setTimeValue] = useState('');
 
   // 데이터가 변경될 때마다 콘솔에 출력
   useEffect(() => {
@@ -248,13 +249,15 @@ export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecord
       </div>
 
       {selectedCell && (
-        <div className="edit-time-modal">
-          <div className="modal-content">
+        <div className="time-edit-modal-overlay">
+          <div className="time-edit-modal">
             <h2>Edit Time</h2>
             <p>{selectedCell.fieldName}</p>
             <input
               type="time"
-              onChange={(e) => handleSaveTime(e.target.value)}
+              placeholder="HH:mm"
+              className="time-input"
+              onChange={(e) => setTimeValue(e.target.value)}
             />
             <div className="modal-buttons">
               <button 
@@ -265,7 +268,7 @@ export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecord
               </button>
               <button 
                 className="save-button"
-                onClick={() => handleSaveTime(document.querySelector('input[type="time"]')?.value || '')}
+                onClick={() => handleSaveTime(timeValue)}
               >
                 Save
               </button>

@@ -76,16 +76,22 @@
 
 .time-edit-modal h2 {
   margin-top: 0;
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+
+.time-edit-modal p {
   font-size: 18px;
+  margin-bottom: 20px;
 }
 
 .time-input {
   width: 100%;
-  padding: 10px;
+  padding: 12px;
   margin: 15px 0;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .modal-buttons {
@@ -96,11 +102,12 @@
 
 .cancel-button,
 .save-button {
-  padding: 8px 20px;
+  padding: 12px 0;
   border-radius: 4px;
   cursor: pointer;
   font-weight: bold;
   width: 45%;
+  font-size: 16px;
 }
 
 .cancel-button {
