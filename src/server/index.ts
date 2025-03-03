@@ -9,6 +9,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/authenticate';
 import userRouter from './routes/user';
 import adminRouter from './routes/admin';
+import inquiryRoutes from './routes/inquiry';
 import jwt from 'jsonwebtoken';
 
 dotenv.config();
@@ -67,6 +68,7 @@ app.use('/user', userRouter);
 app.use('/locations', locationRouter);
 app.use('/timeRecords', timeRecordsRouter);
 
+app.use('/inquiries', inquiryRoutes); // 경로가 '/api/inquiries'가 아닌 '/inquiries'로 등록되어야 함
 
 // Protected routes
 app.use('/api/time-entries', authenticate, timeEntriesRouter);

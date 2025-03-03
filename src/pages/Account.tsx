@@ -1,19 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu } from 'lucide-react';
 import Logo from '../assets/logo_bee3.png';
 import EditIcon from '../assets/edit.png';
-import HomeIcon from '../assets/home.png';
-import UserIcon from '../assets/user.png';
-import TimeIcon from '../assets/time.png';
-import LogoutIcon from '../assets/logout.png';
+
 import CancelIcon from '../assets/red_btn_cancel.png';
-import MenuCancelIcon from '../assets/btn_icon_cancel.png';
-import HomeIconHover from '../assets/home_hover.png';
-import UserIconHover from '../assets/user_hover.png';
-import TimeIconHover from '../assets/time_hover.png';
+import SaveIcon from '../assets/btn_save.png';
 import { Layout } from '../components/Layout';
 import { API_URL } from '../config/constants';
+import { InquiryModal } from '../components/InquiryModal';
 
 // 사용자 정보 인터페이스 정의
 interface UserInfo {
@@ -39,6 +33,7 @@ export const Account: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -86,7 +81,7 @@ export const Account: React.FC = () => {
   }, []);
 
   if (loading) {
-    return <Layout><div className="flex justify-center items-center min-h-screen">Loading...</div></Layout>;
+    return <Layout><div className="flex justify-center items-center">Loading...</div></Layout>;
   }
 
   // 사용자 정보 업데이트 함수
@@ -178,7 +173,7 @@ export const Account: React.FC = () => {
 
   return (
     <Layout>
-      <div className="flex flex-col min-h-screen w-full max-w-md mx-auto">
+      <div className="flex flex-col w-full max-w-md mx-auto">
         {/* 로고 및 타이틀 */}
         <div className="flex flex-col items-center justify-center py-6">
           <img src={Logo} alt="Bee Time Logo" className="h-16 w-16 mb-3" />
@@ -192,57 +187,66 @@ export const Account: React.FC = () => {
         )}
 
         {/* 계정 정보 카드들 */}
-        <div className="space-y-6 px-6">
-          <div className="bg-white rounded-3xl p-6 shadow-[0_4px_10px_rgba(0,0,0,0.08)]">
+        <div className="space-y-6 px-4 mt-4 mb-10">
+          <div className="bg-white rounded-3xl p-4 shadow-[0_4px_10px_rgba(0,0,0,0.08)]">
             <div className="flex justify-between items-center">
-              <div className="text-gray-600 font-bold">Email:</div>
+              <div className="text-gray-600 font-bold text-sm">Email:</div>
               <div className="flex-1 ml-2">
-                <span className="font-montserrat">{userInfo?.email || '-'}</span>
+                <span className="font-montserrat text-sm">{userInfo?.email || '-'}</span>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl p-6 shadow-[0_4px_10px_rgba(0,0,0,0.08)]">
+          <div className="bg-white rounded-3xl p-4 shadow-[0_4px_10px_rgba(0,0,0,0.08)]">
             <div className="flex justify-between items-center">
-              <div className="text-gray-600 font-bold">Name:</div>
+              <div className="text-gray-600 font-bold text-sm">Name:</div>
               {isEditing === 'name' ? (
-                <div className="flex items-center gap-2 flex-1 ml-2">
+                <div className="flex items-center flex-1 ml-2 relative">
                   <input
                     type="text"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2"
+                    className="w-3/4 border rounded-lg p-2 text-sm"
                   />
-                  <button onClick={handleEdit} className="text-green-600">
-                    <img src={EditIcon} alt="save" className="w-6 h-6" />
+                  <button 
+                    onClick={handleEdit} 
+                    className="ml-6"
+                  >
+                    <img src={SaveIcon} alt="save" className="w-[40px] h-[34px]" />
                   </button>
-                  <button onClick={() => setIsEditing(null)} className="text-red-600">
-                    <img src={CancelIcon} alt="cancel" className="w-6 h-6" />
+                  <button 
+                    onClick={() => setIsEditing(null)} 
+                    className="ml-5"
+                  >
+                    <img src={CancelIcon} alt="cancel" className="w-[28px] h-[25px]" />
                   </button>
                 </div>
               ) : (
                 <div className="flex justify-between items-center flex-1 ml-2">
-                  <span className="font-montserrat">{userInfo?.name || '-'}</span>
-                  <button onClick={() => {
-                    setIsEditing('name');
-                    setEditValue(userInfo?.name || '');
-                  }}>
-                    <img src={EditIcon} alt="edit" className="w-6 h-6" />
+                  <span className="font-montserrat text-sm">{userInfo?.name || '-'}</span>
+                  <button 
+                    onClick={() => {
+                      setIsEditing('name');
+                      setEditValue(userInfo?.name || '');
+                    }}
+                    className="p-2.5 hover:bg-gray-100 rounded-full"
+                  >
+                    <img src={EditIcon} alt="edit" className="w-5 h-5" />
                   </button>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl p-6 shadow-[0_4px_10px_rgba(0,0,0,0.08)]">
+          <div className="bg-white rounded-3xl p-4 shadow-[0_4px_10px_rgba(0,0,0,0.08)]">
             <div className="flex justify-between items-center">
-              <div className="text-gray-600 font-bold">Work Place:</div>
+              <div className="text-gray-600 font-bold text-sm">Work <br />Place:</div>
               {isEditing === 'workPlace' ? (
-                <div className="flex items-center gap-2 flex-1 ml-2">
+                <div className="flex items-center flex-1 ml-2 relative">
                   <select
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 appearance-none"
+                    className="w-full border rounded-lg px-3 py-2 text-sm appearance-none"
                   >
                     <option value="" disabled>Select Work Place</option>
                     {locations.map((location) => (
@@ -251,38 +255,67 @@ export const Account: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <button onClick={handleEdit} className="text-green-600">
-                    <img src={EditIcon} alt="save" className="w-6 h-6" />
+                  <button 
+                    onClick={handleEdit} 
+                    className="ml-4"
+                  >
+                    <img src={SaveIcon} alt="save" className="w-[38px] h-[34px]" />
                   </button>
-                  <button onClick={() => setIsEditing(null)} className="text-red-600">
-                    <img src={CancelIcon} alt="cancel" className="w-6 h-6" />
+                  <button 
+                    onClick={() => setIsEditing(null)} 
+                    className="ml-3"
+                  >
+                    <img src={CancelIcon} alt="cancel" className="w-[28px] h-[25px]" />
                   </button>
                 </div>
               ) : (
                 <div className="flex justify-between items-center flex-1 ml-2">
-                  <span className="font-montserrat">{userInfo?.location?.name || '-'}</span>
-                  <button onClick={() => {
-                    setIsEditing('workPlace');
-                    setEditValue(userInfo?.location?.name || '');
-                  }}>
-                    <img src={EditIcon} alt="edit" className="w-6 h-6" />
+                  <span className="font-montserrat text-sm">{userInfo?.location?.name || '-'}</span>
+                  <button 
+                    onClick={() => {
+                      setIsEditing('workPlace');
+                      setEditValue(userInfo?.location?.name || '');
+                    }}
+                    className="p-2.5 hover:bg-gray-100 rounded-full"
+                  >
+                    <img src={EditIcon} alt="edit" className="w-5 h-5" />
                   </button>
                 </div>
               )}
             </div>
           </div>
+
+          {/* Help & Support 버튼 - 전체 div를 클릭 가능하게 변경 */}
+          <div 
+            className="w-full shadow-[0_4px_10px_rgba(0,0,0,0.08) ]"
+            onClick={() => setIsInquiryModalOpen(true)}
+            >
+            <div className="bg-[#FDCF17] rounded-3xl p-4 cursor-pointer hover:bg-[#f5f5f5] transition-colors duration-200 ">
+              <div className="text-center text-gray-700 font-bold text-sm">
+                Help & Support
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
+      
+      {/* Inquiry Modal */}
+      <InquiryModal 
+        isOpen={isInquiryModalOpen} 
+        onClose={() => setIsInquiryModalOpen(false)} 
+      />
 
         {/* Delete Account 버튼 */}
-        <div className="mt-auto mb-10 text-center">
+        <div className="mt-[100px] text-center">
           <button
             onClick={handleDeleteAccount}
-            className="text-[#B17F4A] font-montserrat text-lg hover:underline"
+            className="text-[#B17F4A] font-montserrat text-sm hover:underline"
           >
             Delete Account
           </button>
         </div>
-      </div>
+        
+       
     </Layout>
   );
 };
