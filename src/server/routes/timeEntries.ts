@@ -932,23 +932,29 @@ router.get('/time-entries', async (req, res) => {
   }
 });
 
-// Place ID로 위치 정보 조회 엔드포인트 추가
+// Place ID로 위치 정보 조회 엔드포인트 수정
 router.get('/places/:placeId', async (req, res) => {
   try {
     const { placeId } = req.params;
     console.log('Place ID 조회 요청:', placeId);
-    console.log('API Key:', process.env.GOOGLE_MAPS_API_KEY); // API 키 확인용 (실제 운영환경에서는 제거)
-
+    
     // Google Places API 호출
     const placeResponse = await googleMapsClient.placeDetails({
       params: {
         place_id: placeId,
-        fields: ['geometry'],
+        fields: ['geometry', 'name', 'formatted_address'],
         key: process.env.GOOGLE_MAPS_API_KEY || ''
       }
     });
 
-    console.log('Google Places API 응답:', placeResponse.data); // 응답 확인용
+    console.log('Google Places API 응답 상태:', placeResponse.data.status);
+    
+    // 응답 데이터의 구조를 자세히 로깅
+    if (placeResponse.data.result && placeResponse.data.result.geometry) {
+      console.log('위치 정보:', JSON.stringify(placeResponse.data.result.geometry.location));
+    } else {
+      console.log('전체 응답 구조:', JSON.stringify(placeResponse.data));
+    }
 
     if (placeResponse.data.status !== 'OK' || !placeResponse.data.result?.geometry?.location) {
       console.error('Places API 오류 응답:', placeResponse.data);
@@ -958,11 +964,20 @@ router.get('/places/:placeId', async (req, res) => {
       });
     }
 
-    const { lat, lng } = placeResponse.data.result.geometry.location;
+    // 위치 정보 직접 접근
+    const location = placeResponse.data.result.geometry.location;
+    const lat = location.lat;
+    const lng = location.lng;
     
+    console.log('추출된 위치 정보:', { latitude: lat, longitude: lng });
+    
+    // 명시적으로 응답 객체 구성
     return res.json({
+      placeId: placeId,
       latitude: lat,
-      longitude: lng
+      longitude: lng,
+      name: placeResponse.data.result.name || '',
+      address: placeResponse.data.result.formatted_address || ''
     });
   } catch (error) {
     console.error('Place ID 조회 오류:', error);
