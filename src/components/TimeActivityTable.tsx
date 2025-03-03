@@ -149,7 +149,7 @@ export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecord
   const formatDate = (date: Date | string) => {
     if (!date) return '';
     const dateObj = typeof date === 'string' ? new Date(date) : date;
-    return format(dateObj, 'MM/dd');
+    return format(dateObj, 'dd/MM');
   };
 
   const toggleExtendedBreaks = () => {
@@ -157,39 +157,40 @@ export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecord
   };
 
   return (
-    <div className="time-activity-container">
-      <div className="table-controls">
-        <button 
-          className="toggle-breaks-btn" 
-          onClick={toggleExtendedBreaks}
-        >
-          {showExtendedBreaks ? '- less' : '+ more'}
-        </button>
-      </div>
-      
+    <div>
       <div className="time-table-wrapper">
         <table className="time-activity-table">
           <thead>
             <tr>
               <th>Date</th>
               <th>In</th>
-              <th>B1 In</th>
-              <th>B1 Out</th>
-              {showExtendedBreaks && (
+              {showExtendedBreaks ? (
                 <>
+                  <th>B1 In</th>
+                  <th>B1 Out</th>
                   <th>B2 In</th>
                   <th>B2 Out</th>
                   <th>B3 In</th>
                   <th>B3 Out</th>
                 </>
+              ) : (
+                <>
+                  <th>B1 In</th>
+                  <th>B1 Out</th>
+                </>
               )}
               <th>Out</th>
+              <th>WH</th>
             </tr>
           </thead>
           <tbody>
             {timeRecords.map((record) => (
               <tr key={record.id}>
-                <td>{formatDate(record.date)}</td>
+                <td className="date-cell">
+                  {typeof record.date === 'string' 
+                    ? new Date(record.date).toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit' })
+                    : new Date(record.date).toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit' })}
+                </td>
                 <td 
                   className={record.checkIn ? 'has-data' : 'no-data'} 
                   onClick={() => handleCellClick(record.id, 'clockInTime', 'Clock In')}
@@ -242,40 +243,23 @@ export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecord
                 >
                   {record.checkOut || '-'}
                 </td>
+                <td className="hours-cell">
+                  {record.workingHours ? record.workingHours.toFixed(1) : '-'}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
-      {selectedCell && (
-        <div className="time-edit-modal-overlay">
-          <div className="time-edit-modal">
-            <h2>Edit Time</h2>
-            <p>{selectedCell.fieldName}</p>
-            <input
-              type="time"
-              placeholder="HH:mm"
-              className="time-input"
-              onChange={(e) => setTimeValue(e.target.value)}
-            />
-            <div className="modal-buttons">
-              <button 
-                className="cancel-button"
-                onClick={() => setSelectedCell(null)}
-              >
-                Cancel
-              </button>
-              <button 
-                className="save-button"
-                onClick={() => handleSaveTime(timeValue)}
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      
+      <div className="table-controls">
+        <button 
+          className="toggle-breaks-btn" 
+          onClick={toggleExtendedBreaks}
+        >
+          {showExtendedBreaks ? '- less' : '+ more'}
+        </button>
+      </div>
     </div>
   );
 };

@@ -4,7 +4,7 @@ import { API_URL } from '../config/constants';
 import { format, subDays, addDays } from 'date-fns';
 import { Layout } from '../components/Layout';
 import { TimeActivityTable } from '../components/TimeActivityTable';
-import BeeTimeLogo from '../assets/logo_bee2.svg';
+import BeeTimeLogo from '../assets/logo_bee3.png';
 
 
 
@@ -103,14 +103,31 @@ export const TimeActivity: React.FC = () => {
       
       // 응답 데이터와 날짜 매핑
       const formattedData = weekDates.map(weekDate => {
+        // 클라이언트 날짜 형식
         const formattedDate = format(new Date(weekDate.date), 'yyyy-MM-dd');
-        const record = data.find((r: any) => r.date === formattedDate);
+        
+        // 서버 날짜 형식 변환 함수
+        const convertServerDate = (serverDate: string) => {
+          // dd-MM-yyyy 형식을 yyyy-MM-dd로 변환
+          const parts = serverDate.split('-');
+          if (parts.length === 3) {
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
+          }
+          return serverDate;
+        };
+        
+        // 서버 응답의 모든 날짜를 변환하여 비교
+        const record = data.find((r: any) => {
+          const convertedDate = convertServerDate(r.date);
+          console.log(`비교: 서버 날짜(${r.date}) → 변환(${convertedDate}) vs 클라이언트(${formattedDate})`);
+          return convertedDate === formattedDate;
+        });
         
         if (record) {
           console.log(`✓ ${formattedDate} 날짜의 근무 기록 찾음:`, record);
           return {
             ...weekDate,
-            id: record.id,
+            id: record.id || 0,
             checkIn: record.clockInTime,
             breakIn1: record.breakStartTime1,
             breakOut1: record.breakEndTime1, 
@@ -128,7 +145,7 @@ export const TimeActivity: React.FC = () => {
         const dateStr = format(new Date(weekDate.date), 'yyyyMMdd');
         return {
           ...weekDate,
-          id: parseInt(dateStr), // 날짜를 기반으로 한 고유 ID 생성
+          id: parseInt(dateStr),
         };
       });
 
@@ -210,20 +227,20 @@ export const TimeActivity: React.FC = () => {
 
   return (
     <Layout>
-      <div className="flex flex-col min-h-screen bg-[#F7E3CA] px-4 py-6">
+      <div className="flex flex-col min-h-screen px-4 py-6">
         {/* 헤더 섹션 */}
-        <div className="flex flex-col items-center justify-center mb-6">
+        <div className="flex flex-col items-center justify-center mb-3">
           <img 
             src={BeeTimeLogo} 
             alt="BeeTime Logo" 
             className="w-16 h-16 mb-2"
           />
-          <h1 className="text-xl font-bold text-[#805B3F]">Time Activity</h1>
+          <h1 className="text-[18pt] font-fredoka font-bold text-[#000]">Time Activity</h1>
         </div>
         
         {/* 날짜 표시 */}
-        <div className="text-center mb-4 text-sm font-medium">
-          {format(currentDate, 'yyyy.MM.dd')} - {format(addDays(currentDate, 6), 'yyyy.MM.dd')}
+        <div className="text-center  mb-4 text-[#805B3F] text-[10pt] font-medium">
+          {format(currentDate, 'dd.MM.yyyy')} - {format(addDays(currentDate, 6), 'dd.MM.yyyy')}
         </div>
 
         {/* 테이블 섹션 */}

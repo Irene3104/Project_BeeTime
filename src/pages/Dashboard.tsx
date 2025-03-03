@@ -334,8 +334,37 @@ export const Dashboard = () => {
   };
 
   // Get button text based on last action
-  const getButtonText = (type: ActionType) => {
-    // Check if we have stored actions in localStorage
+  const getButtonText = (type: ActionType): React.ReactNode => {
+    // 현재 로딩 중인 경우
+    if (loading === type) {
+      return <span className="text-sm">Loading...</span>;
+    }
+    
+    // DB에서 가져온 데이터 확인
+    if (timeRecord) {
+      const fieldMap: Record<ActionType, string> = {
+        'clockIn': 'clockInTime',
+        'clockOut': 'clockOutTime',
+        'breakStart1': 'breakStartTime1',
+        'breakEnd1': 'breakEndTime1',
+        'breakStart2': 'breakStartTime2',
+        'breakEnd2': 'breakEndTime2',
+        'breakStart3': 'breakStartTime3',
+        'breakEnd3': 'breakEndTime3'
+      };
+      
+      // 해당 필드에 값이 있으면 시간 표시
+      if (timeRecord[fieldMap[type]]) {
+        return (
+          <>
+            <span className="text-lg">{getActionTitle(type)}</span>
+            <span className="text-sm">{timeRecord[fieldMap[type]]}</span>
+          </>
+        );
+      }
+    }
+    
+    // localStorage 확인 (백업 로직)
     try {
       const storageKey = getUserStorageKey('lastActions');
       const storedActions = localStorage.getItem(storageKey);
@@ -351,20 +380,10 @@ export const Dashboard = () => {
         }
       }
     } catch (error) {
-      console.error("Error reading stored actions:", error);
+      console.error("Error checking stored actions:", error);
     }
     
-    // If this is the last action, show the time
-    if (lastAction && lastAction.type === type) {
-      return (
-        <>
-          <span className="text-lg">{getActionTitle(type)}</span>
-          <span className="text-sm">{lastAction.time}</span>
-        </>
-      );
-    }
-    
-    // Default text
+    // 기본 텍스트
     return <span className="text-lg">{getActionTitle(type)}</span>;
   };
   
