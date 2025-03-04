@@ -76,11 +76,18 @@ const calculateWorkingHours = (timeRecord: any): number => {
 
   const clockInMinutes = convertTimeToMinutes(timeRecord.clockInTime);
   const clockOutMinutes = convertTimeToMinutes(timeRecord.clockOutTime);
-  const breakMinutes = calculateBreakMinutes(timeRecord);
+  const breakMinutes = calculateBreakMinutes(timeRecord.breakMinutes);
 
   const totalWorkingMinutes = Math.max(0, clockOutMinutes - clockInMinutes - breakMinutes);
-  // 시간을 소수점으로 변환 (예: 10시간 30분 = 10.5)
-  return Number((totalWorkingMinutes / 60).toFixed(2));
+  
+  // 시간 부분 계산 (정수 시간)
+  const hours = Math.floor(totalWorkingMinutes / 60);
+  
+  // 분 부분 계산 (나머지 분)
+  const minutes = totalWorkingMinutes % 60;
+  
+  // 시간.분 형식으로 결합 (예: 8시간 5분 = 8.05)
+  return parseFloat(`${hours}.${minutes.toString().padStart(2, '0')}`);
 };
 
 const timeEntrySchema = z.object({

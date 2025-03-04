@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config/constants';
-import { format, subDays, addDays } from 'date-fns';
+import { format, subDays, addDays, startOfWeek } from 'date-fns';
 import { Layout } from '../components/Layout';
 import { TimeActivityTable } from '../components/TimeActivityTable';
 import BeeTimeLogo from '../assets/logo_bee3.png';
@@ -37,13 +37,18 @@ export const TimeActivity: React.FC = () => {
     navigate('/login');
   };
 
-  // 7일치 날짜 데이터 생성
+  // 7일치 날짜 데이터 생성 (수정된 부분)
   const generateWeekDates = (baseDate: Date) => {
     const dates: TimeRecord[] = [];
+    
+    // 현재 주의 월요일 찾기 (0: 일요일, 1: 월요일, ..., 6: 토요일)
+    const weekStart = startOfWeek(baseDate, { weekStartsOn: 1 }); // 1은 월요일
+    
+    // 월요일부터 7일간 데이터 생성
     for (let i = 0; i < 7; i++) {
       dates.push({
         id: 0,  // 실제 데이터가 매칭될 때 덮어써질 것임
-        date: addDays(baseDate, i),
+        date: addDays(weekStart, i),
         checkIn: null,
         breakIn1: null,
         breakOut1: null,
@@ -59,7 +64,7 @@ export const TimeActivity: React.FC = () => {
     return dates;
   };
 
-  // 근무 기록 조회 (DB 구조에 맞게 수정)
+  // 근무 기록 조회 (수정된 부분)
   const fetchTimeRecords = async (baseDate: Date) => {
     try {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
@@ -69,9 +74,10 @@ export const TimeActivity: React.FC = () => {
         return;
       }
       
-      // 날짜 범위 설정 (현재 날짜부터 7일)
-      const startDate = format(baseDate, 'yyyy-MM-dd');
-      const endDate = format(addDays(baseDate, 6), 'yyyy-MM-dd');
+      // 날짜 범위 설정 (월요일부터 7일)
+      const weekStart = startOfWeek(baseDate, { weekStartsOn: 1 }); // 1은 월요일
+      const startDate = format(weekStart, 'yyyy-MM-dd');
+      const endDate = format(addDays(weekStart, 6), 'yyyy-MM-dd');
       
       // timeRecord 엔드포인트로 변경
       const url = `${API_URL}/timeRecords?startDate=${startDate}&endDate=${endDate}`;
@@ -98,7 +104,7 @@ export const TimeActivity: React.FC = () => {
       const data = await response.json();
       console.log('✅ 받은 데이터:', data);
       
-      // 7일치 기본 날짜 생성
+      // 기본 7일 데이터 생성 (월~일)
       const weekDates = generateWeekDates(baseDate);
       
       // 응답 데이터와 날짜 매핑
@@ -238,9 +244,13 @@ export const TimeActivity: React.FC = () => {
           <h1 className="text-[18pt] font-fredoka font-bold text-[#000]">Time Activity</h1>
         </div>
         
-        {/* 날짜 표시 */}
-        <div className="text-center  mb-4 text-[#805B3F] text-[10pt] font-medium">
-          {format(currentDate, 'dd.MM.yyyy')} - {format(addDays(currentDate, 6), 'dd.MM.yyyy')}
+        {/* 날짜 표시 - 수정된 부분 */}
+        <div className="text-center mb-4 text-[#805B3F] text-[10pt] font-medium">
+          {(() => {
+            const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+            const weekEnd = addDays(weekStart, 6);
+            return `${format(weekStart, 'dd.MM.yyyy')} - ${format(weekEnd, 'dd.MM.yyyy')}`;
+          })()}
         </div>
 
         {/* 테이블 섹션 */}

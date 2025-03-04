@@ -156,6 +156,50 @@ export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecord
     setShowExtendedBreaks(!showExtendedBreaks);
   };
 
+  // 근무 시간 포맷팅 함수 추가
+  const formatWorkingHours = (hours: string | number | null): string => {
+    if (hours === null) return '-';
+    
+    // 문자열이면 숫자로 변환
+    const numericHours = typeof hours === 'string' ? parseFloat(hours) : hours;
+    
+    // 시간 부분 계산 (정수 부분)
+    const h = Math.floor(numericHours);
+    
+    // 분 부분 계산 (소수점 부분을 분으로 변환)
+    const m = Math.round((numericHours - h) * 100);
+    
+    // 형식화된 문자열 반환 (분은 항상 2자리로 표시)
+    return `${h}h ${m.toString().padStart(2, '0')}m`;
+  };
+
+  // 요일 표시 함수
+  const getKoreanWeekday = (date: Date | string): string => {
+    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    return weekdays[dateObj.getDay()];
+  };
+
+  // 날짜 생성 및 정렬 로직 수정
+  const sortedTimeRecords = [...timeRecords].sort((a, b) => {
+    // 먼저 날짜로 정렬 (날짜 순서대로)
+    const dateA = new Date(a.date);
+    const dateB = new Date(b.date);
+    return dateA.getTime() - dateB.getTime();
+  });
+
+  // 또는 일주일치 순서대로 표시하려면 (현재 날짜 기준 7일)
+  const sortedByWeekday = [...timeRecords].sort((a, b) => {
+    const dateA = new Date(a.date);
+    const dateB = new Date(b.date);
+    
+    // 같은 주차 내에서 요일 순으로 정렬
+    const dayA = dateA.getDay() === 0 ? 7 : dateA.getDay();
+    const dayB = dateB.getDay() === 0 ? 7 : dateB.getDay();
+    
+    return dayA - dayB;
+  });
+
   return (
     <div>
       <div className="time-table-wrapper">
@@ -184,12 +228,12 @@ export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecord
             </tr>
           </thead>
           <tbody>
-            {timeRecords.map((record) => (
+            {sortedTimeRecords.map((record) => (
               <tr key={record.id}>
                 <td className="date-cell">
                   {typeof record.date === 'string' 
-                    ? new Date(record.date).toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit' })
-                    : new Date(record.date).toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit' })}
+                    ? `${formatDate(record.date)} (${getKoreanWeekday(record.date)})`
+                    : `${formatDate(record.date)} (${getKoreanWeekday(record.date)})`}
                 </td>
                 <td 
                   className={record.checkIn ? 'has-data' : 'no-data'} 
@@ -244,7 +288,7 @@ export const TimeActivityTable: React.FC<TimeActivityTableProps> = ({ timeRecord
                   {record.checkOut || '-'}
                 </td>
                 <td className="hours-cell">
-                  {record.workingHours ? record.workingHours.toFixed(1) : '-'}
+                  {record.workingHours ? formatWorkingHours(record.workingHours) : '-'}
                 </td>
               </tr>
             ))}
