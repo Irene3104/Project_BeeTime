@@ -7,6 +7,7 @@ import { QRScanner } from '../components/QRScanner';
 import { Layout } from '../components/Layout';
 import { BreakLevelControls } from '../components/BreakLevelControls';
 import { API_URL } from '../config/constants';
+import { LoadingSpinner } from '../components/LoadingSpinner';
 
 // Helper function to get current user ID
 const getCurrentUserId = (): string | null => {
@@ -65,6 +66,7 @@ export const Dashboard = () => {
   const [userId, setUserId] = useState<string | null>(null);
   const [breakLevel, setBreakLevel] = useState<number>(1);
   const [timeRecord, setTimeRecord] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Set user ID on component mount
   useEffect(() => {
@@ -138,9 +140,10 @@ export const Dashboard = () => {
   // DB에서 가져온 오늘의 시간 기록 저장
   useEffect(() => {
     const fetchTodayTimeRecord = async () => {
-      if (!userId) return;
-      
+      setIsLoading(true);
       try {
+        if (!userId) return;
+        
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');
         // 오늘 날짜 가져오기 (DD-MM-YYYY 형식)
         const today = formatNSWDate(getCurrentNSWTime());
@@ -163,6 +166,8 @@ export const Dashboard = () => {
         }
       } catch (error) {
         console.error("Error fetching today's time record:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
     
@@ -635,6 +640,8 @@ export const Dashboard = () => {
                   Reset All Actions
                 </button>
               </div>
+
+      {isLoading && <LoadingSpinner />}
     </Layout>
   );
 };

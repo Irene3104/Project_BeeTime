@@ -24,6 +24,8 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
   const [scanSuccess, setScanSuccess] = useState<{ message: string; data: any } | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [forcedDebugMode, setForcedDebugMode] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   // 중복 스캔 방지를 위한 참조
   const lastScannedCode = useRef<string | null>(null);
@@ -73,72 +75,93 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
   
   // 스캐너 시작 함수
   const startScanning = () => {
-    if (scannerRef.current) {
-      stopScanning();
-    }
-    
     try {
-      // 기존 스캐너 컨테이너 내부의 모든 요소 제거
-      const container = document.getElementById(scannerContainerId);
-      if (container) {
-        while (container.firstChild) {
-          container.removeChild(container.firstChild);
-        }
-      }
+      console.log("스캐너 시작 시도...");
       
+      // 새 스캐너 인스턴스 생성
       const html5QrCode = new Html5Qrcode(scannerContainerId);
       scannerRef.current = html5QrCode;
       
-      // 스캔 영역 크기를 카메라 화면에 맞게 조정
-      // 화면 크기의 70%로 설정하여 카메라 안에 들어가도록 함
-      const screenWidth = Math.min(window.innerWidth, 500); // 최대 너비 제한
-      const qrboxSize = Math.floor(screenWidth * 0.7);
-      
+      // 기본 설정으로 단순화
       const config = {
         fps: 10,
-        qrbox: { width: qrboxSize, height: qrboxSize },
-        formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
-        // 비디오 요소 스타일 직접 설정
-        videoConstraints: {
-          width: { ideal: screenWidth },
-          height: { ideal: screenWidth * 1.2 },
-          facingMode: "environment"
+        qrbox: { width: 250, height: 250 },
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: false
         }
       };
       
+      console.log("카메라 시작 중...");
       html5QrCode.start(
         { facingMode: "environment" },
         config,
         onScanSuccess,
         onScanFailure
-      ).catch(err => {
-        console.error("카메라 시작 오류:", err);
-        setScanError("카메라를 시작할 수 없습니다. 권한을 확인해주세요.");
+      ).then(() => {
+        console.log("카메라 및 스캐너 시작 성공!");
+      }).catch((error) => {
+        console.error("카메라 시작 실패:", error);
+        setScanError("카메라를 시작할 수 없습니다. 브라우저 권한을 확인하세요.");
       });
-      
-      // 비디오 요소 스타일 직접 조정
-      setTimeout(() => {
-        const videoElement = container?.querySelector('video');
-        if (videoElement) {
-          videoElement.style.objectFit = 'cover';
-          videoElement.style.width = '100%';
-          videoElement.style.height = '100%';
-          videoElement.style.borderRadius = '8px';
-        }
-      }, 500);
     } catch (error) {
-      console.error('스캐너 초기화 오류:', error);
-      setScanError('카메라를 시작할 수 없습니다. 카메라 권한을 확인해주세요.');
+      console.error("스캐너 초기화 오류:", error);
+      setScanError("스캐너를 초기화할 수 없습니다. 페이지를 새로고침 해보세요.");
     }
   };
   
   // 스캐너 중지 함수
   const stopScanning = () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
-      scannerRef.current.stop()
-        .catch(error => console.error('스캐너 중지 오류:', error));
-      scannerRef.current = null;
-    }
+    return new Promise<void>((resolve) => {
+      try {
+        if (scannerRef.current) {
+          // 현재 상태 확인
+          const isScanning = scannerRef.current.isScanning;
+          console.log("스캐너 중지 시도, 현재 스캐닝 상태:", isScanning);
+          
+          if (isScanning) {
+            // 스캔 중인 경우 중지
+            scannerRef.current.stop()
+              .then(() => {
+                console.log("스캐너 중지 성공");
+                // HTML5QrCode는 stop 후에도 카메라 스트림을 완전히 정리하지 않을 수 있음
+                try {
+                  scannerRef.current?.clear();
+                } catch (clearErr) {
+                  console.log("스캐너 정리 중 무시된 오류:", clearErr);
+                }
+                
+                scannerRef.current = null;
+                
+                // 브라우저의 모든 미디어 스트림 해제 (중요)
+                navigator.mediaDevices.getUserMedia({ video: true })
+                  .then(stream => {
+                    stream.getTracks().forEach(track => track.stop());
+                    console.log("카메라 트랙 완전히 해제됨");
+                  })
+                  .catch(err => console.log("카메라 트랙 해제 중 오류:", err))
+                  .finally(() => resolve());
+              })
+              .catch((err) => {
+                console.log("스캐너 중지 중 오류:", err);
+                scannerRef.current = null;
+                resolve();
+              });
+          } else {
+            console.log("스캐너가 이미 중지된 상태");
+            scannerRef.current = null;
+            resolve();
+          }
+        } else {
+          console.log("중지할 스캐너가 없음");
+          resolve();
+        }
+      } catch (error) {
+        console.error("스캐너 중지 시 예외 발생:", error);
+        scannerRef.current = null;
+        resolve();
+      }
+    });
   };
   
   // 스캔 성공 핸들러
@@ -159,7 +182,21 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       setIsProcessing(true);
       scanCooldown.current = true;
       lastScannedCode.current = decodedText;
-
+      
+      // 진행 상태 표시 타이머 설정 (약 3초 동안 0%에서 90%까지)
+      setProcessingProgress(0);
+      progressTimerRef.current = setInterval(() => {
+        setProcessingProgress(prev => {
+          if (prev >= 90) {
+            if (progressTimerRef.current) {
+              clearInterval(progressTimerRef.current);
+            }
+            return 90;
+          }
+          return prev + 5;
+        });
+      }, 150);
+      
       console.log('QR 코드 스캔 성공:', decodedText);
       
       // QR 코드 처리 로직...
@@ -222,10 +259,19 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       
       // 1초 후 창 닫기
       setTimeout(() => {
+        if (progressTimerRef.current) {
+          clearInterval(progressTimerRef.current);
+        }
         onClose();
       }, 1000);
 
     } catch (error) {
+      // 오류 발생 시 진행 상태 타이머 정리
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+      }
+      setProcessingProgress(0);
+      
       console.error('QR 스캔 처리 오류:', error);
       setScanError(error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다');
     } finally {
@@ -340,14 +386,48 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
     handleClose();
   };
   
-  // 재시도 버튼 핸들러
-  const handleRetry = () => {
+  // handleRetry 함수 개선
+  const handleRetry = async () => {
+    console.log("다시 시도 실행: 스캐너 재시작");
+    
+    // 오류 상태 초기화
     setScanError(null);
-    setScanSuccess(null);
     setIsProcessing(false);
+    
+    // 스캔 쿨다운 초기화
     scanCooldown.current = false;
     lastScannedCode.current = null;
-    startScanning();
+    
+    // 진행 중인 타이머 모두 제거
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+    
+    try {
+      // 먼저 스캐너 완전히 중지 (Promise 기반)
+      await stopScanning();
+      
+      // 기존 HTML 요소 정리
+      const container = document.getElementById(scannerContainerId);
+      if (container) {
+        container.innerHTML = '';
+      }
+      
+      // 잠시 지연 후 다시 시작
+      setTimeout(() => {
+        try {
+          startScanning();
+          console.log("스캐너가 성공적으로 재시작되었습니다");
+        } catch (error) {
+          console.error("스캐너 재시작 실패:", error);
+          setScanError("스캐너를 다시 시작할 수 없습니다. 페이지를 새로고침 해보세요.");
+        }
+      }, 1000); // 1초 지연
+    } catch (error) {
+      console.error("재시도 처리 중 오류:", error);
+      setScanError("재시도 처리 중 오류가 발생했습니다. 페이지를 새로고침 해보세요.");
+    }
   };
   
   // 시간 기록 생성 함수 수정
@@ -482,6 +562,15 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
     }
   };
   
+  // 컴포넌트 언마운트 시 타이머 정리
+  useEffect(() => {
+    return () => {
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+      }
+    };
+  }, []);
+  
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
       {/* 헤더 */}
@@ -508,12 +597,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
           
           {/* 스캔 프레임 - 카메라 안에 들어가도록 조정 */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            {/* <div className="border-2 border-white w-4/5 h-4/5 rounded-lg relative">
-              <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-white rounded-tl-lg"></div>
-              <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-white rounded-tr-lg"></div>
-              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-white rounded-bl-lg"></div>
-              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-white rounded-br-lg"></div>
-            </div> */}
+            <div className="border-2 border-[#FDCF17] w-4/5 h-4/5 rounded-lg"></div>
           </div>
         </div>
       </div>
@@ -521,20 +605,36 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       {/* 상태 메시지 */}
       <div className="p-4">
         {isProcessing && !scanError && (
-          <div className="bg-[#FDCF17] border border-yellow-200 text-black-800 font-montserrat font-semibold p-4 rounded-lg text-center">
-            <p>Processing...</p>
+          <div className="bg-white border border-[#FDCF17] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-gray-700">Processing...</span>
+              <span className="text-sm text-gray-500">{processingProgress}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2.5">
+              <div 
+                className="bg-[#FDCF17] h-2.5 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${processingProgress}%` }}
+              ></div>
+            </div>
+            <p className="text-sm text-gray-500 mt-2 text-center">Please wait a moment...</p>
           </div>
         )}
         
         {scanError && (
           <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
             <p>{scanError}</p>
-            <div className="mt-3 flex justify-center">
+            <div className="mt-3 flex justify-center gap-2">
               <button
                 onClick={handleRetry}
                 className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded"
               >
                 다시 시도
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded"
+              >
+                새로고침
               </button>
             </div>
           </div>

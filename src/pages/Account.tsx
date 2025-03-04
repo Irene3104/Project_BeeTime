@@ -8,6 +8,7 @@ import SaveIcon from '../assets/btn_save.png';
 import { Layout } from '../components/Layout';
 import { API_URL } from '../config/constants';
 import { InquiryModal } from '../components/InquiryModal';
+import { LoadingSpinner } from '../components/LoadingSpinner';
 
 // 사용자 정보 인터페이스 정의
 interface UserInfo {
@@ -34,9 +35,11 @@ export const Account: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchUserInfo = async () => {
+      setIsLoading(true);
       try {
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');
         console.log('=== 디버깅 정보 ===');
@@ -60,6 +63,8 @@ export const Account: React.FC = () => {
         console.error('Error:', error);
         setError('Failed to load user information');
         setLoading(false);
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -81,7 +86,11 @@ export const Account: React.FC = () => {
   }, []);
 
   if (loading) {
-    return <Layout><div className="flex justify-center items-center">Loading...</div></Layout>;
+    return (
+      <Layout>
+        <LoadingSpinner message="Loading account information..." />
+      </Layout>
+    );
   }
 
   // 사용자 정보 업데이트 함수
@@ -315,7 +324,7 @@ export const Account: React.FC = () => {
           </button>
         </div>
         
-       
+        {isLoading && <LoadingSpinner />}
     </Layout>
   );
 };

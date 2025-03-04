@@ -60,6 +60,9 @@ export const Signup = () => {
         if (!formData.name.trim()) {
             errors.name = 'Name is required';
             isValid = false;
+        } else if (formData.name.trim().length < 2) {
+            errors.name = 'Name must be at least 2 characters';
+            isValid = false;
         }
 
         // 이메일 검증
@@ -75,14 +78,17 @@ export const Signup = () => {
         }
 
         // 비밀번호 검증
-        if (formData.password.length < 8) {
-            errors.password = 'Password must be at least 8 characters long';
+        if (!formData.password) {
+            errors.password = 'Password is required';
+            isValid = false;
+        } else if (formData.password.length < 8) {
+            errors.password = 'Password must be at least 8 characters';
             isValid = false;
         }
 
         // workplace 검증
         if (!formData.locationId) {
-            errors.locationId = 'Work Place';
+            errors.locationId = 'Work place is required';
             isValid = false;
         }
 
@@ -117,7 +123,8 @@ export const Signup = () => {
             
              // API 응답이 실패인 경우 에러 처리
             if (!response.ok) {
-                throw new Error(data.error || 'Signup failed');
+                setError(data.error || '회원가입에 실패했습니다.');
+                return;
             }
 
              // 로그인 정보 로컬 스토리지에 저장
@@ -127,11 +134,7 @@ export const Signup = () => {
             // 회원가입 성공 모달 표시
             setShowSuccessModal(true);
         } catch (error) {
-            if (error instanceof Error) {
-                setError(error.message);
-            } else {
-                setError('An unexpected error occurred');
-            }
+            setError('Server connection issue. Please try again later.');
         }
     };
 
@@ -166,7 +169,7 @@ export const Signup = () => {
                             placeholder="Full Name (as used at work)"
                             value={formData.name}
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            className="w-full border border-[#C5ABAB] px-4 py-3 rounded-[15px] placeholder:text-[#AB9B9B] font-montserrat"
+                            className="w-full border border-[#C5ABAB] px-4 py-3 rounded-[15px] placeholder:text-[#AB9B9B] font-montserrat focus:outline-none focus:ring-2 focus:ring-yellow-400"
                             required
                         />
                         {/* 이름 필드 에러 메시지 */}
@@ -180,7 +183,7 @@ export const Signup = () => {
                             placeholder="Email"
                             value={formData.email}
                             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                            className="w-full border border-[#C5ABAB] px-4 py-3 rounded-[15px] placeholder:text-[#AB9B9B] font-montserrat"
+                            className="w-full border border-[#C5ABAB] px-4 py-3 rounded-[15px] placeholder:text-[#AB9B9B] font-montserrat focus:outline-none focus:ring-2 focus:ring-yellow-400"
                             required
                         />
                         {/* 이메일 필드 에러 메시지 */}
@@ -194,7 +197,7 @@ export const Signup = () => {
                             placeholder="Password"
                             value={formData.password}
                             onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                            className="w-full border border-[#C5ABAB] px-4 py-3 rounded-[15px] placeholder:text-[#AB9B9B] font-montserrat"
+                            className="w-full border border-[#C5ABAB] px-4 py-3 rounded-[15px] placeholder:text-[#AB9B9B] font-montserrat focus:outline-none focus:ring-2 focus:ring-yellow-400"
                             required
                         />
                          {/* 비밀번호 필드 에러 메시지 */}
@@ -206,20 +209,35 @@ export const Signup = () => {
                         <select
                             value={formData.locationId}
                             onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
-                            className="w-full border border-[#C5ABAB] px-4 py-3 rounded-[15px] appearance-none pr-8 font-montserrat text-[#AB9B9B]"
+                            className="w-full border border-[#C5ABAB] px-4 py-3 rounded-[15px] appearance-none pr-8 font-montserrat bg-white  text-[#AB9B9B] focus:outline-none focus:ring-2 focus:ring-yellow-400"
                             required
                         >
-                            <option value="" disabled>Work Place</option>
-                             {/* 지점 목록을 옵션으로 표시 */}
+                            <option value="" disabled className="text-[#AB9B9B]">Work Place</option>
                             {locations.map((location: Location) => (
                                 <option key={location.id.toString()} value={location.id}>
                                     {location.name} {location.branch ? `(${location.branch})` : ''}
                                 </option>
                             ))}
                         </select>
-                         {/* 드롭다운 화살표 아이콘 */}
-                        <img src={DownArrowIcon} alt="arrow" className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none" />
-                        {/* 근무지 필드 에러 메시지 */}
+                        {/* 드롭다운 화살표 아이콘 강조 */}
+                        <div className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                            <svg 
+                                width="14" 
+                                height="8" 
+                                viewBox="0 0 14 8" 
+                                fill="none" 
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="text-[#AB9B9B]"
+                            >
+                                <path 
+                                    d="M1 1L7 7L13 1" 
+                                    stroke="currentColor" 
+                                    strokeWidth="2" 
+                                    strokeLinecap="round" 
+                                    strokeLinejoin="round"
+                                />
+                            </svg>
+                        </div>
                         {formErrors.locationId && <p className="text-red-500 text-sm mt-1">{formErrors.locationId}</p>}
                     </div>
                     

@@ -230,8 +230,8 @@ export const Reports = () => {
         // "No records found for the specified period" 오류 메시지를 사용자 친화적으로 변환
         if (data.error === "No records found for the specified period") {
           const locationText = selectedLocation 
-            ? locations.find(loc => loc.id.toString() === selectedLocation)?.name || '선택한 위치'
-            : '모든 위치';
+            ? locations.find(loc => loc.id.toString() === selectedLocation)?.name || '선택한 working place'
+            : '모든 working place';
             
           const formattedStartDate = format(new Date(startDate), 'yyyy년 MM월 dd일');
           const formattedEndDate = format(new Date(endDate), 'yyyy년 MM월 dd일');
@@ -257,6 +257,11 @@ export const Reports = () => {
       // 성공 메시지 표시
       setError(null);
       setSuccessMessage('리포트가 성공적으로 생성되었습니다.');
+      
+      // 2초 후에 성공 메시지 제거
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 2000); // 2000ms = 2초
       
     } catch (error: any) {
       console.error('Error generating report:', error);

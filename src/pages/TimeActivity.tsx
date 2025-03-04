@@ -5,6 +5,7 @@ import { format, subDays, addDays, startOfWeek } from 'date-fns';
 import { Layout } from '../components/Layout';
 import { TimeActivityTable } from '../components/TimeActivityTable';
 import BeeTimeLogo from '../assets/logo_bee3.png';
+import { LoadingSpinner } from '../components/LoadingSpinner';
 
 
 
@@ -29,6 +30,7 @@ export const TimeActivity: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [isLoading, setIsLoading] = useState(true);
 
   // 로그아웃 핸들러
   const handleLogout = () => {
@@ -231,6 +233,22 @@ export const TimeActivity: React.FC = () => {
     fetchTimeRecords(currentDate);
   };
 
+  // 활동 기록 데이터 로딩 시 로딩 상태 처리
+  useEffect(() => {
+    const fetchTimeActivities = async () => {
+      setIsLoading(true);
+      try {
+        // 시간 활동 데이터 로딩 코드...
+      } catch (error) {
+        console.error("Error fetching time activities:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchTimeActivities();
+  }, [currentDate]);
+
   return (
     <Layout>
       <div className="flex flex-col min-h-screen px-4 py-6">
@@ -255,9 +273,7 @@ export const TimeActivity: React.FC = () => {
 
         {/* 테이블 섹션 */}
         {loading ? (
-          <div className="text-center py-4 text-sm">
-            Loading...
-          </div>
+          <LoadingSpinner message="Loading time records..." />
         ) : error ? (
           <div className="text-red-500 text-center py-4 text-sm">
             {error}
@@ -286,6 +302,8 @@ export const TimeActivity: React.FC = () => {
             Next Week <span className="ml-1">→</span>
           </button>
         </div>
+
+        {isLoading && <LoadingSpinner />}
       </div>
     </Layout>
   );

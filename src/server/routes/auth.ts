@@ -24,23 +24,64 @@ const signupSchema = z.object({
 type SignupInput = z.infer<typeof signupSchema>;
 
 // 일반 회원가입 라우트
-router.post('/signup', validateRequest(signupSchema), async (req, res) => {
+router.post('/signup', async (req, res) => {
   try {
-    // 클라이언트에서 전송된 회원가입 정보
     const { email, password, name, locationId } = req.body as SignupInput;
-    console.log('회원가입 요청:', { email, name, locationId });
-
-    // 1. 이메일 중복 체크
+    
+    // 필수 필드 검증
+    if (!email || !password || !name) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email, password, and name are required' 
+      });
+    }
+    
+    // 이름 길이 검증 (2글자 이상)
+    if (name.length < 2) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Name must be at least 2 characters' 
+      });
+    }
+    
+    // 이메일 형식 검증
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid email format' 
+      });
+    }
+    
+    // 비밀번호 길이 검증
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Password must be at least 6 characters' 
+      });
+    }
+    
+    // 근무지 검증
+    if (!locationId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Work place is required'
+      });
+    }
+    
+    // 중복 이메일 확인
     const existingUser = await prisma.user.findUnique({
       where: { email }
     });
-
+    
     if (existingUser) {
-      console.log('이메일 중복:', email);
-      return res.status(400).json({ error: '이미 사용 중인 이메일입니다.' });
+      return res.status(409).json({ 
+        success: false, 
+        error: 'Email is already registered. Please use a different email.' 
+      });
     }
-
-     // 2. 선택한 지점이 실제로 존재하는지 확인
+    
+    // 2. 선택한 지점이 실제로 존재하는지 확인
     const location = await prisma.location.findUnique({
       where: { id: locationId }
     });
@@ -98,8 +139,11 @@ router.post('/signup', validateRequest(signupSchema), async (req, res) => {
     });
 
   } catch (error) {
-    console.error('회원가입 에러:', error);
-    res.status(500).json({ error: '회원가입 처리 중 오류가 발생했습니다.' });
+    console.error('회원가입 오류:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: '회원가입 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' 
+    });
   }
 });
 

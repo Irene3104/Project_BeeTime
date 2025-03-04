@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { USER_ID, USER_NAME } from '../src/constants/users';
 
 const prisma = new PrismaClient();
 
@@ -21,14 +22,16 @@ const prisma = new PrismaClient();
 
 /**
  * 특정 사용자의 시간 기록만 삭제하는 함수
- * @param userId 삭제할 사용자의 ID
+//  * @param userId 삭제할 사용자의 ID
+//  * @param id 삭제할 시간 기록의 ID
  */
-async function clearTimeRecordsForUser(userId: string) {
+async function clearTimeRecordsForUser(userId: string, id: number) {
   try {
     // 특정 사용자의 TimeRecord 레코드만 삭제
     const deletedRecords = await prisma.timeRecord.deleteMany({
       where: {
-        userId: userId
+        userId: userId,
+        id: id
       }
     });
     
@@ -50,9 +53,12 @@ async function clearTimeRecordsForUser(userId: string) {
 //   .catch(e => console.error(e));
 
 //2. 특정 사용자의 시간 기록만 삭제
-const userId = "f97e67c1-5231-4775-8a08-2ff10f0ff738"; // 예: "user_123456"
-clearTimeRecordsForUser(userId)
-  .then(() => console.log(`사용자 ID ${userId}의 TimeRecord 삭제 완료`))
+const userId = USER_ID.IRENE; // 예: "user_123456"
+const userName = USER_NAME.IRENE;
+const id = 92;
+clearTimeRecordsForUser(userId, id)
+  .then(() => console.log(`사용자 ${userName}_${userId}, id: ${id}의 TimeRecord 삭제 완료`))
+
   .catch(e => console.error(e));
 
 // 3. 명령줄 인수로 userId를 받아 특정 사용자의 시간 기록 삭제
