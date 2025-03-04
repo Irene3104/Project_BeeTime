@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import adminIconDownload from '../assets/admin_icon_download.png';
 
 interface Employee {
   id: string;
@@ -161,7 +162,7 @@ export const ExcelDownloader = ({ data, pageType, columns }: ExcelDownloaderProp
       className="text-[#A18206] font-montserrat flex items-center gap-2"
     >
       Download
-      <img src="/src/assets/admin_icon_download.png" alt="download" />
+      <img src={adminIconDownload} alt="download" />
     </button>
   );
 };
