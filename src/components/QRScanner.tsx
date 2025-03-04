@@ -25,6 +25,8 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
   const [scanError, setScanError] = useState<string | null>(null);
   const [forcedDebugMode, setForcedDebugMode] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [internalDebugMode, setInternalDebugMode] = useState(debugMode);
+  const [internalSkipLocationCheck, setInternalSkipLocationCheck] = useState(skipLocationCheck);
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   // 중복 스캔 방지를 위한 참조
@@ -55,13 +57,13 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
     
     if (debugParam === 'true') {
       console.log('디버그 모드 활성화 (URL 파라미터)');
-      setDebugMode(true);
+      setInternalDebugMode(true);
       setForcedDebugMode(true);
     }
     
     if (skipLocationParam === 'true') {
       console.log('위치 확인 건너뛰기 활성화 (URL 파라미터)');
-      setSkipLocationCheck(true);
+      setInternalSkipLocationCheck(true);
     }
     
     // 스캐너 초기화
@@ -74,39 +76,96 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
   }, []);
   
   // 스캐너 시작 함수
-  const startScanning = () => {
+  const startScanning = async () => {
     try {
       console.log("스캐너 시작 시도...");
+      
+      // DOM 요소가 확실히 준비되었는지 확인
+      const scannerContainer = document.getElementById(scannerContainerId);
+      if (!scannerContainer) {
+        console.error(`스캐너 컨테이너 요소 ${scannerContainerId}를 찾을 수 없음`);
+        return;
+      }
       
       // 새 스캐너 인스턴스 생성
       const html5QrCode = new Html5Qrcode(scannerContainerId);
       scannerRef.current = html5QrCode;
       
-      // 기본 설정으로 단순화
+      // iOS용 최적화 설정
       const config = {
-        fps: 10,
+        fps: 10, 
         qrbox: { width: 250, height: 250 },
+        aspectRatio: 1.0,
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
         experimentalFeatures: {
           useBarCodeDetectorIfSupported: false
         }
       };
       
-      console.log("카메라 시작 중...");
-      html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        onScanSuccess,
-        onScanFailure
-      ).then(() => {
+      console.log("카메라 접근 권한 요청 중...");
+      
+      // iOS Safari를 위한 추가 처리
+      if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
+        console.log("iOS 기기 감지됨, 카메라 접근에 특별 처리 적용");
+      }
+      
+      // 카메라 시작 전에 먼저 권한 요청 시도
+      await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      
+      console.log("카메라 권한 획득 성공, 스캐너 시작");
+      
+      // 카메라 ID 사용 방식으로 변경 (iOS에서 더 안정적)
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(device => device.kind === 'videoinput');
+        
+        if (cameras.length > 0) {
+          // 후면 카메라 우선 선택 (iOS에서는 후면 카메라가 더 안정적)
+          let selectedCamera = cameras[0].deviceId; // 기본값
+          
+          // 가능하면 "back" 또는 "environment"가 포함된 카메라 찾기
+          for (const camera of cameras) {
+            if (camera.label.toLowerCase().includes('back') || 
+                camera.label.toLowerCase().includes('environment')) {
+              selectedCamera = camera.deviceId;
+              break;
+            }
+          }
+          
+          console.log(`사용할 카메라 ID: ${selectedCamera}`);
+          
+          await html5QrCode.start(
+            { deviceId: { exact: selectedCamera } },
+            config,
+            onScanSuccess,
+            onScanFailure
+          );
+        } else {
+          // 카메라 ID를 찾을 수 없으면 기본 facingMode 사용
+          console.log("카메라 ID를 찾을 수 없음, facingMode로 대체");
+          await html5QrCode.start(
+            { facingMode: "environment" },
+            config,
+            onScanSuccess,
+            onScanFailure
+          );
+        }
         console.log("카메라 및 스캐너 시작 성공!");
-      }).catch((error) => {
-        console.error("카메라 시작 실패:", error);
-        setScanError("카메라를 시작할 수 없습니다. 브라우저 권한을 확인하세요.");
-      });
+      } catch (cameraError) {
+        console.error("카메라 ID 방식 실패, facingMode로 재시도:", cameraError);
+        
+        // 카메라 ID 방식 실패 시 facingMode로 재시도
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          config,
+          onScanSuccess,
+          onScanFailure
+        );
+        console.log("facingMode로 카메라 시작 성공!");
+      }
     } catch (error) {
-      console.error("스캐너 초기화 오류:", error);
-      setScanError("스캐너를 초기화할 수 없습니다. 페이지를 새로고침 해보세요.");
+      console.error("스캐너 초기화 또는 카메라 접근 오류:", error);
+      setScanError("카메라를 시작할 수 없습니다. 브라우저 설정에서 카메라 권한을 확인하세요.");
     }
   };
   
@@ -207,7 +266,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       
       // skipLocationCheck가 true인 경우에만 위치 확인을 건너뛰고, 
       // 디버그 모드와 상관없이 위치 확인 수행
-      if (!skipLocationCheck) {
+      if (!internalSkipLocationCheck) {
         try {
           // 사용자의 현재 위치 가져오기
           const position = await getCurrentPosition();
@@ -367,15 +426,34 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
     }
   };
   
-  // 닫기 버튼 핸들러
-  const handleClose = () => {
-    stopScanning();
-
-  // 카메라 스트림 명시적으로 중지
-  if (scannerRef.current) {
-    scannerRef.current.clear();
-  }
-    onClose();
+  // 닫기 버튼 핸들러 수정
+  const handleClose = async () => {
+    try {
+      // onClose를 먼저 호출하여 즉시 대시보드로 돌아가게 함
+      onClose();
+      
+      // 그 후 백그라운드에서 정리 작업 수행
+      if (scannerRef.current) {
+        try {
+          await scannerRef.current.stop();
+          scannerRef.current.clear();
+        } catch (error) {
+          console.log('스캐너 정리 중 오류 무시:', error);
+        }
+      }
+      
+      // 미디어 스트림 해제
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream.getTracks().forEach(track => track.stop());
+      } catch (error) {
+        console.log('미디어 스트림 해제 중 오류 무시:', error);
+      }
+    } catch (error) {
+      console.error('닫기 처리 중 오류:', error);
+      // 오류가 발생해도 닫기는 진행
+      onClose();
+    }
   };
   
   // 성공 후 닫기 핸들러
@@ -623,20 +701,6 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
         {scanError && (
           <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
             <p>{scanError}</p>
-            <div className="mt-3 flex justify-center gap-2">
-              <button
-                onClick={handleRetry}
-                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded"
-              >
-                다시 시도
-              </button>
-              <button
-                onClick={() => window.location.reload()}
-                className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded"
-              >
-                새로고침
-              </button>
-            </div>
           </div>
         )}
       </div>
