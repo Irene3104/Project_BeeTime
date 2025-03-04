@@ -62,7 +62,7 @@ model TimeRecord {
   locationId     Int
   status         String   @db.VarChar(50)
   note           String?
-  createdAt      DateTime @default(now()) @db.Timestamp(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
   clockInTime    String?   @db.VarChar(5)
   clockOutTime   String?  @db.VarChar(5)
 

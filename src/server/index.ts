@@ -11,6 +11,7 @@ import userRouter from './routes/user';
 import adminRouter from './routes/admin';
 import inquiryRoutes from './routes/inquiry';
 import jwt from 'jsonwebtoken';
+import 'tzdata';
 
 dotenv.config();
 
@@ -142,6 +143,12 @@ app.use((req, res) => {
 });
 
 app.use(errorHandler);
+
+process.env.TZ = 'Australia/Sydney';
+
+console.log('서버 시작 시간 (시드니):', new Date().toLocaleString('en-AU', {
+  timeZone: 'Australia/Sydney'
+}));
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

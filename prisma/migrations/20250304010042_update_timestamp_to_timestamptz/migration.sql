@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "TimeRecord" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ(6);

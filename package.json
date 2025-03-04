@@ -12,7 +12,7 @@
     "build-server": "npx tsc --project tsconfig.server.json",
     "init-workplaces": "tsx scripts/workplace-data.ts",
     "init-admin": "tsx scripts/admin.ts",
-    "init-timerecords":  "tsx scripts/generateTestData.ts",
+    "init-timerecords": "tsx scripts/generateTestData.ts",
     "reset-users": "tsx scripts/resetUsers.ts",
     "createTimeRecords": "tsx scripts/createTimeRecords.ts",
     "clearTimeRecords": "tsx scripts/clearTimeRecords.ts",
@@ -45,6 +45,7 @@
     "react-icons": "^5.5.0",
     "react-query": "^3.39.3",
     "react-router-dom": "^6.28.2",
+    "tzdata": "^1.0.43",
     "xlsx": "^0.18.5",
     "xlsx-js-style": "^1.2.0",
     "zod": "^3.24.1"

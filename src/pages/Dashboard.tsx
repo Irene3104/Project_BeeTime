@@ -57,7 +57,6 @@ type ActionType =
 
 export const Dashboard = () => {
   // Dashboard component for time tracking
-  const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(getCurrentNSWTime());
   const [showScanner, setShowScanner] = useState<{ show: boolean; type: ActionType | null }>({ show: false, type: null });
   const [loading, setLoading] = useState<ActionType | null>(null);
@@ -291,7 +290,7 @@ export const Dashboard = () => {
         });
         
         // timeRecord 상태 업데이트
-        const updatedTimeRecord = { ...timeRecord } || {};
+        const updatedTimeRecord = timeRecord ? { ...timeRecord } : {};
         
         // 액션 타입에 따라 필드 이름 결정
         const fieldMap: Record<ActionType, string> = {
@@ -330,57 +329,98 @@ export const Dashboard = () => {
     
     // 로딩 상태 해제
     setLoading(null);
-    
   };
 
-  // Get button text based on last action
+  // 버튼 비활성화 여부 결정 함수 단순화
+  const isButtonDisabled = (type: ActionType): boolean => {
+    // 현재 로딩 중인 경우
+    if (loading === type) return true;
+    
+    // timeRecord가 없으면 버튼 활성화
+    if (!timeRecord) return false;
+    
+    // 액션 타입에 따른 필드 이름 매핑
+    const fieldMap: Record<ActionType, string> = {
+      'clockIn': 'clockInTime',
+      'clockOut': 'clockOutTime',
+      'breakStart1': 'breakStartTime1',
+      'breakEnd1': 'breakEndTime1',
+      'breakStart2': 'breakStartTime2',
+      'breakEnd2': 'breakEndTime2',
+      'breakStart3': 'breakStartTime3',
+      'breakEnd3': 'breakEndTime3'
+    };
+    
+    // 해당 필드에 값이 있으면 버튼 비활성화
+    return !!timeRecord[fieldMap[type]];
+  };
+
+  // timeRecord의 시간을 NSW 시간대로 변환하는 함수 개선
+  const convertToNSWTimeString = (timeString: string): string => {
+    // 시간 문자열이 없는 경우 빈 문자열 반환
+    if (!timeString) return '';
+    
+    try {
+      // HH:MM 형식인 경우 (서버에서 직접 받은 형식)
+      if (/^\d{1,2}:\d{2}$/.test(timeString)) {
+        return timeString; // 이미 시간 형식이라면 그대로 반환
+      }
+      
+      // ISO 형식 또는 다른 날짜 문자열인 경우
+      const date = new Date(timeString);
+      
+      if (isNaN(date.getTime())) {
+        console.error('유효하지 않은 날짜:', timeString);
+        return ''; // 유효하지 않은 날짜인 경우 빈 문자열 반환
+      }
+      
+      return date.toLocaleString('en-AU', { 
+        timeZone: 'Australia/Sydney',
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: false // 24시간 형식 사용
+      });
+    } catch (error) {
+      console.error('날짜 변환 오류:', error, timeString);
+      return '';
+    }
+  };
+
+  // 버튼 텍스트 반환 함수 단순화
   const getButtonText = (type: ActionType): React.ReactNode => {
     // 현재 로딩 중인 경우
     if (loading === type) {
       return <span className="text-sm">Loading...</span>;
     }
     
-    // DB에서 가져온 데이터 확인
-    if (timeRecord) {
-      const fieldMap: Record<ActionType, string> = {
-        'clockIn': 'clockInTime',
-        'clockOut': 'clockOutTime',
-        'breakStart1': 'breakStartTime1',
-        'breakEnd1': 'breakEndTime1',
-        'breakStart2': 'breakStartTime2',
-        'breakEnd2': 'breakEndTime2',
-        'breakStart3': 'breakStartTime3',
-        'breakEnd3': 'breakEndTime3'
-      };
-      
-      // 해당 필드에 값이 있으면 시간 표시
-      if (timeRecord[fieldMap[type]]) {
-        return (
-          <>
-            <span className="text-lg">{getActionTitle(type)}</span>
-            <span className="text-sm">{timeRecord[fieldMap[type]]}</span>
-          </>
-        );
-      }
-    }
+    // 액션 타입에 따른 필드 이름 매핑
+    const fieldMap: Record<ActionType, string> = {
+      'clockIn': 'clockInTime',
+      'clockOut': 'clockOutTime',
+      'breakStart1': 'breakStartTime1',
+      'breakEnd1': 'breakEndTime1',
+      'breakStart2': 'breakStartTime2',
+      'breakEnd2': 'breakEndTime2',
+      'breakStart3': 'breakStartTime3',
+      'breakEnd3': 'breakEndTime3'
+    };
     
-    // localStorage 확인 (백업 로직)
-    try {
-      const storageKey = getUserStorageKey('lastActions');
-      const storedActions = localStorage.getItem(storageKey);
-      if (storedActions) {
-        const actions = JSON.parse(storedActions);
-        if (actions[type]) {
-          return (
-            <>
-              <span className="text-lg">{getActionTitle(type)}</span>
-              <span className="text-sm">{actions[type].time}</span>
-            </>
-          );
-        }
+    // 시간 표시 시 NSW 시간대로 변환
+    if (timeRecord && timeRecord[fieldMap[type]]) {
+      const originalTime = timeRecord[fieldMap[type]];
+      const formattedTime = convertToNSWTimeString(originalTime);
+      
+      // 디버깅을 위해 원본 값도 콘솔에 출력
+      if (!formattedTime) {
+        console.log(`${type} 원본 시간:`, originalTime, '타입:', typeof originalTime);
       }
-    } catch (error) {
-      console.error("Error checking stored actions:", error);
+      
+      return (
+        <>
+          <span className="text-lg">{getActionTitle(type)}</span>
+          <span className="text-sm">{formattedTime || '시간 오류'}</span>
+        </>
+      );
     }
     
     // 기본 텍스트
@@ -399,45 +439,6 @@ export const Dashboard = () => {
       case 'breakEnd3': return 'Break 3 End';
       case 'clockOut': return 'Clock Out';
     }
-  };
-
-  // Determine if button should be disabled
-  const isButtonDisabled = (type: ActionType): boolean => {
-    // 현재 로딩 중인 경우
-    if (loading === type) return true;
-    
-    // DB에서 가져온 데이터 확인
-    if (timeRecord) {
-      const fieldMap: Record<ActionType, string> = {
-        'clockIn': 'clockInTime',
-        'clockOut': 'clockOutTime',
-        'breakStart1': 'breakStartTime1',
-        'breakEnd1': 'breakEndTime1',
-        'breakStart2': 'breakStartTime2',
-        'breakEnd2': 'breakEndTime2',
-        'breakStart3': 'breakStartTime3',
-        'breakEnd3': 'breakEndTime3'
-      };
-      
-      // 해당 필드에 값이 있으면 버튼 비활성화
-      if (timeRecord[fieldMap[type]]) {
-        return true;
-      }
-    }
-    
-    // localStorage 확인 (백업 로직)
-    try {
-      const storageKey = getUserStorageKey('lastActions');
-      const storedActions = localStorage.getItem(storageKey);
-      if (storedActions) {
-        const actions = JSON.parse(storedActions);
-        if (actions[type]) return true;
-      }
-    } catch (error) {
-      console.error("Error checking stored actions:", error);
-    }
-    
-    return false;
   };
 
    // 휴식 레벨 증가 함수

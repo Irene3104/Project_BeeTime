@@ -101,6 +101,51 @@ const locationVerificationSchema = z.object({
   })
 });
 
+// 더 정확한 NSW 시간대 변환 함수
+const convertToNSWTime = (date: Date): Date => {
+  // 정확한 시간대 변환을 위해 date-fns-tz 사용
+  const sydneyDateStr = formatInTimeZone(
+    date,
+    'Australia/Sydney',
+    "yyyy-MM-dd'T'HH:mm:ss.SSS"
+  );
+  return new Date(sydneyDateStr);
+};
+
+// NSW 시간대 문자열 생성 함수 개선
+const getNSWTimeString = (): string => {
+  // 현재 시간을 NSW 시간대로 포맷팅
+  const now = new Date();
+  
+  // 시간대 오프셋을 포함한 ISO 문자열 생성
+  const nswDateTimeStr = formatInTimeZone(
+    now,
+    'Australia/Sydney',
+    "yyyy-MM-dd'T'HH:mm:ss.SSSxxx" // xxx는 시간대 오프셋을 포함
+  );
+  
+  console.log('생성된 NSW 시간 문자열:', nswDateTimeStr);
+  return nswDateTimeStr;
+};
+
+// 더 직접적인 방법으로 시드니 시간 생성
+const getNSWDateWithTimezone = (): Date => {
+  const now = new Date();
+  // 시드니 시간대 오프셋: +11:00 (서머타임 시) 또는 +10:00
+  const sydneyOffsetHours = 11; // 서머타임일 경우
+  
+  // 현재 UTC 시간에 시드니 오프셋 적용
+  now.setHours(now.getHours() + sydneyOffsetHours);
+  
+  console.log('시드니 시간 변환:', {
+    원본UTC: new Date().toISOString(),
+    변환시드니: now.toISOString(),
+    로컬문자열: now.toLocaleString('en-AU', {timeZone: 'Australia/Sydney'})
+  });
+  
+  return now;
+};
+
 router.post('/', validateRequest(timeEntrySchema), async (req, res) => {
   try {
     const { type, time, date, placeId } = req.body;
@@ -159,8 +204,9 @@ router.post('/', validateRequest(timeEntrySchema), async (req, res) => {
           userId: req.user.id,
           locationId: req.user.locationId,
           date: date,
-          [fieldToUpdate]: time, // 올바른 필드명 사용
+          [fieldToUpdate]: time,
           status: 'active',
+          createdAt: getNSWDateWithTimezone(), // 시드니 시간대 직접 적용
           breakMinutes: 0,
           workingHours: 0
         }
@@ -793,21 +839,45 @@ router.post('/time-entries', validateRequest(timeEntrySchema), async (req, res) 
 
     // 기록이 없으면 새로 생성
     if (!timeRecord) {
+      // 현재 시간을 NSW 시간대로 생성
+      const now = new Date();
+      console.log('UTC 시간:', now.toISOString());
+      
+      const sydneyTime = new Date(getNSWTimeString());
+      console.log('NSW 시간:', sydneyTime.toISOString());
+      console.log('sydneyTime 상세 정보:', {
+        toISOString: sydneyTime.toISOString(),
+        toLocaleString: sydneyTime.toLocaleString('en-AU', { timeZone: 'Australia/Sydney' }),
+        constructorType: sydneyTime.constructor.name,
+        timezoneOffset: sydneyTime.getTimezoneOffset(),
+        rawDate: String(sydneyTime)
+      });
+      
+      // Prisma create 메서드로 타입 안전하게 생성
       timeRecord = await prisma.timeRecord.create({
         data: {
           userId: req.user.id,
           locationId: userLocation.id,
           status: 'active',
           date: date,
-          // 기본값 설정
+          createdAt: getNSWDateWithTimezone(), // 시드니 시간대 직접 적용
           breakMinutes: 0,
           workingHours: 0
         }
       });
+      
+      console.log('생성된 타임레코드:', timeRecord);
+      console.log('생성된 타임레코드 createdAt 필드:', {
+        createdAt: timeRecord.createdAt,
+        type: typeof timeRecord.createdAt,
+        isDate: timeRecord.createdAt instanceof Date
+      });
     }
 
     // 타입에 따라 해당 필드 업데이트
-    const updateData: any = {};
+    const updateData: any = {
+      // updatedAt 제거
+    };
     
     switch (type) {
       case 'clockIn':
