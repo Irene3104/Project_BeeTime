@@ -86,7 +86,7 @@ export const Reports = () => {
       setIsDeleting(true);
       setError(null);
       
-      const response = await fetch(`${API_URL}/time-records/reports/delete`, {
+      const response = await fetch(`${API_URL}/timeRecords/reports/delete`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -123,11 +123,11 @@ export const Reports = () => {
         setIsLoading(true);
         setError(null);
         
-        console.log('Fetching reports from:', `${API_URL}/time-records/reports`);
+        console.log('Fetching reports from:', `${API_URL}/timeRecords/reports`);
         const headers = getAuthHeaders();
         console.log('Request headers:', headers);
         
-        const response = await fetch(`${API_URL}/time-records/reports`, {
+        const response = await fetch(`${API_URL}/timeRecords/reports`, {
           headers: headers,
         });
         
@@ -155,11 +155,11 @@ export const Reports = () => {
   useEffect(() => {
     const fetchLocations = async () => {
       try {
-        console.log('Fetching locations from:', `${API_URL}/time-records/locations`);
+        console.log('Fetching locations from:', `${API_URL}/timeRecords/locations`);
         const headers = getAuthHeaders();
         console.log('Request headers for locations:', headers);
         
-        const response = await fetch(`${API_URL}/time-records/locations`, {
+        const response = await fetch(`${API_URL}/timeRecords/locations`, {
           headers: headers,
         });
         
@@ -201,7 +201,7 @@ export const Reports = () => {
         return;
       }
       
-      const response = await fetch(`${API_URL}/time-records/reports/generate`, {
+      const response = await fetch(`${API_URL}/timeRecords/reports/generate`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -269,7 +269,7 @@ export const Reports = () => {
   // 리포트 다운로드 함수
   const downloadReport = async (id: number) => {
     try {
-      const response = await fetch(`${API_URL}/time-records/reports/${id}/download`, {
+      const response = await fetch(`${API_URL}/timeRecords/reports/${id}/download`, {
         headers: getAuthHeaders(),
       });
       
@@ -305,10 +305,10 @@ export const Reports = () => {
       setIsLoading(true);
       setError(null);
       
-      console.log('Fetching reports from:', `${API_URL}/time-records/reports`);
+      console.log('Fetching reports from:', `${API_URL}/timeRecords/reports`);
       const headers = getAuthHeaders();
       
-      const response = await fetch(`${API_URL}/time-records/reports`, {
+      const response = await fetch(`${API_URL}/timeRecords/reports`, {
         headers: headers,
       });
       

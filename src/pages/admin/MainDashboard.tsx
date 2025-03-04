@@ -105,7 +105,7 @@ export const AdminDashboard = () => {
     const fetchReports = async () => {
       try {
         console.log('[MainDashboard] 리포트 목록 가져오는 중...');
-        const response = await fetch(`${API_URL}/time-records/reports`, {
+        const response = await fetch(`${API_URL}/timeRecords/reports`, {
           headers: getAuthHeaders(),
         });
         
@@ -133,7 +133,7 @@ export const AdminDashboard = () => {
   const handleReportDownload = async (reportId: number, fileName: string) => {
     try {
       console.log(`리포트 다운로드 시작: ${fileName}`);
-      const response = await fetch(`${API_URL}/time-records/reports/${reportId}/download`, {
+      const response = await fetch(`${API_URL}/timeRecords/reports/${reportId}/download`, {
         headers: getAuthHeaders(),
       });
       
@@ -401,7 +401,7 @@ export const AdminDashboard = () => {
                                 )}
                               </>
                             ) : (
-                              <div>아직 생성된 리포트가 없습니다.</div>
+                              <div>No reports have been generated yet.</div>
                             )}
                         </div>
                         <div className="text-center md:w-1/3 p-4 md:p-8 mb-4 md:mb-0">

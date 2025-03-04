@@ -18,19 +18,23 @@ export class ReportService {
       
       const worksheet = workbook.addWorksheet('Attendance Report');
       
-      // 헤더 설정
+      // 헤더 설정 - 모든 break 포함
       worksheet.columns = [
         { header: 'Date', key: 'date', width: 15 },
         { header: 'Employee Name', key: 'name', width: 20 },
         { header: 'Email', key: 'email', width: 30 },
         { header: 'Location', key: 'location', width: 20 },
         { header: 'Clock In', key: 'clockIn', width: 12 },
-        { header: 'Break Start', key: 'breakStart', width: 12 },
-        { header: 'Break End', key: 'breakEnd', width: 12 },
+        { header: 'Break 1 Start', key: 'breakStart1', width: 12 },
+        { header: 'Break 1 End', key: 'breakEnd1', width: 12 },
+        { header: 'Break 2 Start', key: 'breakStart2', width: 12 },
+        { header: 'Break 2 End', key: 'breakEnd2', width: 12 },
+        { header: 'Break 3 Start', key: 'breakStart3', width: 12 },
+        { header: 'Break 3 End', key: 'breakEnd3', width: 12 },
         { header: 'Clock Out', key: 'clockOut', width: 12 },
-        { header: 'Break Time', key: 'breakTime', width: 15 },
-        { header: 'Working Hours', key: 'totalHours', width: 15 },
-        { header: 'Working Hours(2)', key: 'totalHoursDecimal', width: 15 }
+        { header: 'Break Minutes', key: 'breakMinutes', width: 12 },
+        { header: 'Working Hours', key: 'workingHours', width: 15 },
+        { header: 'Working Hours(Decimal)', key: 'workingHoursDecimal', width: 20 }
       ];
       
       // 헤더 스타일 설정
@@ -39,8 +43,8 @@ export class ReportService {
       // 헤더 폰트 설정
       headerRow.font = { bold: true };
       
-      // 헤더 색상 설정 (J열까지만)
-      for (let i = 1; i <= 10; i++) {
+      // 헤더 색상 설정
+      for (let i = 1; i <= 14; i++) {
         const cell = headerRow.getCell(i);
         cell.fill = {
           type: 'pattern',
@@ -48,7 +52,6 @@ export class ReportService {
           fgColor: { argb: 'FFD9D9D9' }
         };
         
-        // 하단 더블 라인 설정
         cell.border = {
           top: { style: 'thin' },
           left: { style: 'thin' },
@@ -57,13 +60,13 @@ export class ReportService {
         };
       }
       
-      // K열 헤더 스타일 (Working Hours(2)) - 다른 색상 적용
-      const workingHours2Cell = headerRow.getCell(11);
+      // Working Hours(Decimal) 헤더 스타일 - 다른 색상 적용
+      const workingHours2Cell = headerRow.getCell(15);
       workingHours2Cell.font = { bold: true };
       workingHours2Cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FFFFE605' } // Adjusted to ensure valid color code
+        fgColor: { argb: 'FFFFE605' }
       };
       workingHours2Cell.border = {
         top: { style: 'thin' },
@@ -72,60 +75,44 @@ export class ReportService {
         bottom: { style: 'double' }
       };
       
-
       // 데이터 처리 및 추가
       if (timeRecords && timeRecords.length > 0) {
         console.log('[ReportService] Processing time records for Excel');
         
         const processedRecords = timeRecords.map(record => {
-          // 휴식 시간 계산
-          let breakDuration = 0;
-          let breakTimeFormatted = '';
+          // DB에서 가져온 breakMinutes 값을 시간과 분 형식으로 변환
+          const breakHours = Math.floor(record.breakMinutes / 60);
+          const breakMins = record.breakMinutes % 60;
+          const breakTimeFormatted = `${breakHours}h ${breakMins}m`;
           
-          if (record.breakStartTime && record.breakEndTime) {
-            const [breakStartHour, breakStartMin] = record.breakStartTime.split(':').map(Number);
-            const [breakEndHour, breakEndMin] = record.breakEndTime.split(':').map(Number);
+          // DB의 workingHours 값 파싱 (8.01 => 8시간 1분)
+          let workingHoursFormatted = "0h 0m";
+          let workingHoursDecimal = 0;
+          
+          if (record.workingHours) {
+            // 소수점 앞은 시간, 소수점 뒤는 분으로 해석
+            const whString = record.workingHours.toString();
+            const parts = whString.split('.');
             
-            let breakHours = breakEndHour - breakStartHour;
-            let breakMins = breakEndMin - breakStartMin;
+            const hours = parseInt(parts[0]);
+            let minutes = 0;
             
-            if (breakMins < 0) {
-              breakHours -= 1;
-              breakMins += 60;
+            if (parts.length > 1) {
+              // 소수점 뒷부분이 10의 자리인지 1의 자리인지 구분
+              const decimalPart = parts[1];
+              if (decimalPart.length === 1) {
+                // 1.1 => 1시간 10분
+                minutes = parseInt(decimalPart) * 10;
+              } else {
+                // 1.01 => 1시간 1분
+                minutes = parseInt(decimalPart);
+              }
             }
             
-            breakDuration = breakHours + (breakMins / 60);
-            breakTimeFormatted = `${breakHours}h ${breakMins}m`;
-          }
-          
-          // 총 근무 시간 계산
-          let totalHours = '';
-          let totalHoursFormatted = '';
-          let totalHoursDecimal = 0; // 숫자 타입으로 변경
-          
-          if (record.clockInTime && record.clockOutTime) {
-            const [inHour, inMin] = record.clockInTime.split(':').map(Number);
-            const [outHour, outMin] = record.clockOutTime.split(':').map(Number);
+            workingHoursFormatted = `${hours}h ${minutes}m`;
             
-            let hours = outHour - inHour;
-            let mins = outMin - inMin;
-            
-            if (mins < 0) {
-              hours -= 1;
-              mins += 60;
-            }
-            
-            const totalWorkHours = hours + (mins / 60) - breakDuration;
-            totalHours = totalWorkHours.toFixed(2);
-            
-            // 시간과 분으로 변환
-            const totalWorkHoursInt = Math.floor(totalWorkHours);
-            const totalWorkMins = Math.round((totalWorkHours - totalWorkHoursInt) * 60);
-            
-            totalHoursFormatted = `${totalWorkHoursInt}h ${totalWorkMins}m`;
-            
-            // 소수점 형식 (7h 30m -> 7.5)
-            totalHoursDecimal = parseFloat(totalWorkHours.toFixed(1));
+            // 10진수 형식으로 변환 (10h 30m => 10.5)
+            workingHoursDecimal = hours + (minutes / 60);
           }
           
           return {
@@ -134,13 +121,30 @@ export class ReportService {
             email: record.user?.email || 'N/A',
             location: record.location?.name || 'N/A',
             clockIn: record.clockInTime || '',
-            breakStart: record.breakStartTime || '',
-            breakEnd: record.breakEndTime || '',
-            clockOut: record.clockOutTime || '',  
-            breakTime: breakTimeFormatted,  
-            totalHours: totalHoursFormatted,
-            totalHoursDecimal: totalHoursDecimal // 숫자 값으로 전달
+            breakStart1: record.breakStartTime1 || '',
+            breakEnd1: record.breakEndTime1 || '',
+            breakStart2: record.breakStartTime2 || '',
+            breakEnd2: record.breakEndTime2 || '',
+            breakStart3: record.breakStartTime3 || '',
+            breakEnd3: record.breakEndTime3 || '',
+            clockOut: record.clockOutTime || '',
+            breakMinutes: breakTimeFormatted,
+            workingHours: workingHoursFormatted,
+            workingHoursDecimal: workingHoursDecimal
           };
+        });
+        
+        // 직원 이름으로 먼저 정렬하고, 같은 직원은 날짜로 정렬
+        processedRecords.sort((a, b) => {
+          // 먼저 이름으로 정렬
+          const nameComparison = a.name.localeCompare(b.name);
+          
+          // 이름이 같으면 날짜로 정렬
+          if (nameComparison === 0) {
+            return a.date.localeCompare(b.date);
+          }
+          
+          return nameComparison;
         });
         
         // 데이터 추가
@@ -149,7 +153,7 @@ export class ReportService {
         // 데이터 셀 테두리 설정
         for (let rowIndex = 2; rowIndex <= processedRecords.length + 1; rowIndex++) {
           const row = worksheet.getRow(rowIndex);
-          for (let colIndex = 1; colIndex <= 11; colIndex++) {
+          for (let colIndex = 1; colIndex <= 15; colIndex++) {
             const cell = row.getCell(colIndex);
             cell.border = {
               top: { style: 'thin' },
@@ -158,8 +162,8 @@ export class ReportService {
               bottom: { style: 'thin' }
             };
             
-            // K열(Working Hours(2))은 숫자 형식으로 설정
-            if (colIndex === 11) {
+            // 숫자 값 컬럼은 숫자 형식으로 설정
+            if (colIndex === 15) {
               cell.numFmt = '0.0';
             }
           }
@@ -170,7 +174,7 @@ export class ReportService {
         const sumRow = worksheet.getRow(sumRowIndex);
         
         // 합계 행 스타일 설정
-        for (let colIndex = 1; colIndex <= 11; colIndex++) {
+        for (let colIndex = 1; colIndex <= 15; colIndex++) {
           const cell = sumRow.getCell(colIndex);
           cell.border = {
             top: { style: 'thin' },
@@ -179,13 +183,13 @@ export class ReportService {
             bottom: { style: 'thin' }
           };
           
-          if (colIndex === 10) {
+          if (colIndex === 14) {
             cell.value = 'Total Hours:';
             cell.font = { bold: true };
             cell.alignment = { horizontal: 'right' };
-          } else if (colIndex === 11) {
-            // SUM 함수 추가 (K2:K{마지막 행})
-            const formula = `SUM(K2:K${sumRowIndex - 1})`;
+          } else if (colIndex === 15) {
+            // SUM 함수 추가
+            const formula = `SUM(O2:O${sumRowIndex - 1})`;
             cell.value = { formula: formula };
             cell.numFmt = '0.0';
             cell.font = { bold: true };
@@ -200,7 +204,6 @@ export class ReportService {
       // 엑셀 파일 생성
       console.log('[ReportService] Generating Excel buffer');
       
-      // Use writeBuffer with proper options for better compatibility
       return await workbook.xlsx.writeBuffer({
         useStyles: true,
         useSharedStrings: true

@@ -59,28 +59,31 @@ model LocationUser {
 model TimeRecord {
   id             Int      @id @default(autoincrement())
   userId         String
+  
   locationId     Int
-  status         String   @db.VarChar(50)
-  note           String?
-  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  date           String   @db.VarChar(10)
+
   clockInTime    String?   @db.VarChar(5)
   clockOutTime   String?  @db.VarChar(5)
-
-  // 첫 번째 break
+  
   breakStartTime1 String?  @db.VarChar(5)
   breakEndTime1   String?  @db.VarChar(5)
-  // 두 번째 break
+ 
   breakStartTime2 String?  @db.VarChar(5)
   breakEndTime2   String?  @db.VarChar(5)
-  // 세 번째 break
+  
   breakStartTime3 String?  @db.VarChar(5)
   breakEndTime3   String?  @db.VarChar(5)
 
   breakMinutes   Int      @default(0)
   workingHours   Float    @default(0)
-  date           String   @db.VarChar(10)
+  
   location       Location @relation(fields: [locationId], references: [id])
   user           User     @relation(fields: [userId], references: [id])
+
+  status         String   @db.VarChar(50)
+  note           String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([userId, date])
   @@index([date])

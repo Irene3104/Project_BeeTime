@@ -85,31 +85,40 @@ router.delete('/delete', authenticate, async (req, res) => {
     }
 
     await prisma.$transaction(async (tx) => {
-      // 1. RefreshToken 삭제 (User와 1:N 관계)
+      console.log('=== 계정 삭제 시작 ===');
+      console.log('삭제할 userId:', userId);
+      
+      // 1. RefreshToken 삭제
       await tx.refreshToken.deleteMany({
-        where: { userId }
+        where: { userId: userId }
       });
       console.log('RefreshToken 삭제 완료');
-
-      // 2. TimeRecord 삭제 (User와 1:N 관계)
+      
+      // 2. VerificationCode 삭제
+      await tx.verificationCode.deleteMany({
+        where: { userId: userId }
+      });
+      console.log('VerificationCode 삭제 완료');
+      
+      // 3. Report 삭제 (새로 추가된 모델)
+      await tx.report.deleteMany({
+        where: { creatorId: userId }
+      });
+      console.log('Report 삭제 완료');
+      
+      // 4. TimeRecord 삭제
       await tx.timeRecord.deleteMany({
-        where: { userId }
+        where: { userId: userId }
       });
       console.log('TimeRecord 삭제 완료');
-
-      // 3. LocationUser 삭제 (User와 Location의 N:M 관계)
+      
+      // 5. LocationUser 삭제
       await tx.locationUser.deleteMany({
-        where: { userId }
+        where: { userId: userId }
       });
       console.log('LocationUser 삭제 완료');
-
-      // 4. WorkSummary 삭제 (User 관련 기록)
-      await tx.workSummary.deleteMany({
-        where: { userId }
-      });
-      console.log('WorkSummary 삭제 완료');
-
-      // 5. 마지막으로 User 삭제
+      
+      // 6. User 삭제
       await tx.user.delete({
         where: { id: userId }
       });
