@@ -76,17 +76,17 @@ const calculateWorkingHours = (timeRecord: any): number => {
 
   const clockInMinutes = convertTimeToMinutes(timeRecord.clockInTime);
   const clockOutMinutes = convertTimeToMinutes(timeRecord.clockOutTime);
-  const breakMinutes = calculateBreakMinutes(timeRecord.breakMinutes);
+  const breakMinutes = calculateBreakMinutes(timeRecord);
 
   const totalWorkingMinutes = Math.max(0, clockOutMinutes - clockInMinutes - breakMinutes);
   
   // 시간 부분 계산 (정수 시간)
   const hours = Math.floor(totalWorkingMinutes / 60);
   
-  // 분 부분 계산 (나머지 분)
+  // 분 부분 계산 (나머지 분, 0~59)
   const minutes = totalWorkingMinutes % 60;
   
-  // 시간.분 형식으로 결합 (예: 8시간 5분 = 8.05)
+  // hh.mm 형식으로 결합 (예: 8시간 1분 = 8.01)
   return parseFloat(`${hours}.${minutes.toString().padStart(2, '0')}`);
 };
 
@@ -490,57 +490,24 @@ router.post('/verify-location', validateRequest(locationVerificationSchema), asy
         });
       }
       
-      // Calculate working hours
-      // Convert DD-MM-YYYY to YYYY-MM-DD for JavaScript Date parsing
-      const [day, month, year] = dateString.split('-');
-      const isoDateString = `${year}-${month}-${day}`;
+      // 임시 레코드 생성 (clockOutTime 추가)
+      const tempRecord = {
+        ...existingTimeRecord,
+        clockOutTime: timeString
+      };
       
-      console.log('ClockOut - Original date string:', dateString);
-      console.log('ClockOut - Converted ISO date string:', isoDateString);
-      console.log('ClockOut - Clock in time:', existingTimeRecord.clockInTime);
-      console.log('ClockOut - Clock out time:', timeString);
+      // calculateWorkingHours 함수를 사용하여 통일된 방식으로 workingHours 계산
+      const workingHours = calculateWorkingHours(tempRecord);
       
-      const clockIn = new Date(`${isoDateString}T${existingTimeRecord.clockInTime}:00`);
-      const clockOut = new Date(`${isoDateString}T${timeString}:00`);
-      
-      console.log('ClockOut - Clock in date object:', clockIn);
-      console.log('ClockOut - Clock out date object:', clockOut);
-      
-      // Ensure both dates are valid
-      if (isNaN(clockIn.getTime()) || isNaN(clockOut.getTime())) {
-        console.error('Invalid date calculation for clock out:', {
-          dateString,
-          isoDateString,
-          clockInTime: existingTimeRecord.clockInTime,
-          timeString
-        });
-        return res.status(400).json({
-          error: 'Invalid time format',
-          details: 'Could not calculate working hours due to invalid time format'
-        });
-      }
-      
-      let workingMinutes = (clockOut.getTime() - clockIn.getTime()) / 60000;
-      
-      // If workingMinutes is negative, assume clock out was on the next day
-      if (workingMinutes < 0) {
-        const nextDayClockOut = new Date(`${isoDateString}T${timeString}:00`);
-        nextDayClockOut.setDate(nextDayClockOut.getDate() + 1);
-        workingMinutes = (nextDayClockOut.getTime() - clockIn.getTime()) / 60000;
-      }
-      
-      // Subtract break time if there was a break
-      if (existingTimeRecord.breakMinutes) {
-        workingMinutes -= existingTimeRecord.breakMinutes;
-      }
-      
-      const workingHours = Math.round(workingMinutes / 60 * 10) / 10; // Round to 1 decimal place
+      // breakMinutes 계산
+      const breakMinutes = calculateBreakMinutes(tempRecord);
       
       // Update the time record with clock out time
       const updatedTimeRecord = await prisma.timeRecord.update({
         where: { id: existingTimeRecord.id },
         data: { 
           clockOutTime: timeString,
+          breakMinutes: breakMinutes,
           workingHours: workingHours,
           status: 'completed'
         }
@@ -897,33 +864,16 @@ router.post('/time-entries', validateRequest(timeEntrySchema), async (req, res) 
         
         // 근무 시간 계산 (clockIn과 clockOut이 모두 있는 경우)
         if (timeRecord.clockInTime) {
-          const clockInMinutes = parseInt(timeRecord.clockInTime.split(':')[0]) * 60 + parseInt(timeRecord.clockInTime.split(':')[1]);
-          const clockOutMinutes = parseInt(time.split(':')[0]) * 60 + parseInt(time.split(':')[1]);
-          let totalMinutes = clockOutMinutes - clockInMinutes;
+          // 새로운 방식으로 workingHours 계산
+          // timeRecord에 clockOutTime이 아직 없으므로 임시 객체 생성
+          const tempRecord = { ...timeRecord, clockOutTime: time };
           
-          // 휴식 시간 계산
-          let breakMinutes = 0;
+          // Break Minutes 계산 (각 Break 시간 직접 계산)
+          const calculatedBreakMinutes = calculateBreakMinutes(tempRecord);
+          updateData.breakMinutes = calculatedBreakMinutes;
           
-          if (timeRecord.breakStartTime1 && timeRecord.breakEndTime1) {
-            const breakStart1Minutes = parseInt(timeRecord.breakStartTime1.split(':')[0]) * 60 + parseInt(timeRecord.breakStartTime1.split(':')[1]);
-            const breakEnd1Minutes = parseInt(timeRecord.breakEndTime1.split(':')[0]) * 60 + parseInt(timeRecord.breakEndTime1.split(':')[1]);
-            breakMinutes += breakEnd1Minutes - breakStart1Minutes;
-          }
-          
-          if (timeRecord.breakStartTime2 && timeRecord.breakEndTime2) {
-            const breakStart2Minutes = parseInt(timeRecord.breakStartTime2.split(':')[0]) * 60 + parseInt(timeRecord.breakStartTime2.split(':')[1]);
-            const breakEnd2Minutes = parseInt(timeRecord.breakEndTime2.split(':')[0]) * 60 + parseInt(timeRecord.breakEndTime2.split(':')[1]);
-            breakMinutes += breakEnd2Minutes - breakStart2Minutes;
-          }
-          
-          if (timeRecord.breakStartTime3 && timeRecord.breakEndTime3) {
-            const breakStart3Minutes = parseInt(timeRecord.breakStartTime3.split(':')[0]) * 60 + parseInt(timeRecord.breakStartTime3.split(':')[1]);
-            const breakEnd3Minutes = parseInt(timeRecord.breakEndTime3.split(':')[0]) * 60 + parseInt(timeRecord.breakEndTime3.split(':')[1]);
-            breakMinutes += breakEnd3Minutes - breakStart3Minutes;
-          }
-          
-          updateData.breakMinutes = breakMinutes;
-          updateData.workingHours = convertMinutesToTimeString(totalMinutes - breakMinutes);
+          // workingHours 계산 (calculateWorkingHours 함수 사용)
+          updateData.workingHours = calculateWorkingHours(tempRecord);
         }
         break;
       case 'breakStart1':

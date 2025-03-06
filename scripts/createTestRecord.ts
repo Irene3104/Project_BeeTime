@@ -1,13 +1,12 @@
 import { PrismaClient } from '@prisma/client';
-import { USER_ID, USER_NAME } from '../src/constants/users';
 
 const prisma = new PrismaClient();
 
-// 시드니 시간대 생성 함수 추가
+// 시드니 시간대 생성 함수
 const getNSWDateWithTimezone = (): Date => {
   const now = new Date();
   // 시드니 시간대 오프셋: +11:00 (서머타임 시) 또는 +10:00
-  const sydneyOffsetHours = 11; // 서머타임일 경우
+  const sydneyOffsetHours = 11; 
   
   // 현재 UTC 시간에 시드니 오프셋 적용
   now.setHours(now.getHours() + sydneyOffsetHours);
@@ -20,15 +19,30 @@ const getNSWDateWithTimezone = (): Date => {
   return now;
 };
 
-async function createTimeRecords() {
+async function createTestRecord() {
   try {
-    const now = new Date();
+    console.log('테스트 시간 기록 생성 시작...');
 
+    // tsjyono@gmail.com 사용자 정보
+    const userId = 'aa628090-5fc6-44ac-acd7-fe394d84faca';
+    const testDate = new Date().toISOString().split('T')[0].split('-').reverse().join('-'); // 오늘 날짜 DD-MM-YYYY 형식
+    
+    // 시간 정보
+    const clockInTime = '08:29';
+    const clockOutTime = '17:01';
+    const breakStartTime1 = '10:15';
+    const breakEndTime1 = '10:45';
+    
+    console.log(`테스트 날짜: ${testDate}`);
+    
+    // 시간 문자열을 분으로 변환하는 함수
     const convertTimeToMinutes = (time: string): number => {
+      if (!time) return 0;
       const [hours, minutes] = time.split(':').map(Number);
       return hours * 60 + minutes;
     };
 
+    // 휴식 시간 계산 함수
     const calculateBreakMinutes = (timeRecord: any): number => {
       let totalBreakMinutes = 0;
       
@@ -40,7 +54,7 @@ async function createTimeRecords() {
         if (break1Minutes > 0) totalBreakMinutes += break1Minutes;
       }
       
-      // Break 2 계산 (필요시)
+      // Break 2 계산
       if (timeRecord.breakStartTime2 && timeRecord.breakEndTime2) {
         const breakStart2 = convertTimeToMinutes(timeRecord.breakStartTime2);
         const breakEnd2 = convertTimeToMinutes(timeRecord.breakEndTime2);
@@ -48,7 +62,7 @@ async function createTimeRecords() {
         if (break2Minutes > 0) totalBreakMinutes += break2Minutes;
       }
       
-      // Break 3 계산 (필요시)
+      // Break 3 계산
       if (timeRecord.breakStartTime3 && timeRecord.breakEndTime3) {
         const breakStart3 = convertTimeToMinutes(timeRecord.breakStartTime3);
         const breakEnd3 = convertTimeToMinutes(timeRecord.breakEndTime3);
@@ -59,6 +73,7 @@ async function createTimeRecords() {
       return Math.max(0, totalBreakMinutes);
     };
 
+    // workingHours 계산 함수
     const calculateWorkingHours = (timeRecord: any): number => {
       if (!timeRecord.clockInTime || !timeRecord.clockOutTime) {
         return 0;
@@ -80,76 +95,62 @@ async function createTimeRecords() {
       return parseFloat(`${hours}.${minutes.toString().padStart(2, '0')}`);
     };
 
-    //  사용자의 출퇴근 기록 생성 또는 업데이트
-    const userClockIn = '08:28';
-    const userClockOut = '17:00';
-    const userBreakStart = '11:21';
-    const userBreakEnd = '11:51';
-    
-    const Home = 9;
-    const Sorrel = 10;
-
-
-    // 기존 계산 코드 대신 새 함수 사용
-    const timeRecordData = {
-      clockInTime: userClockIn,
-      clockOutTime: userClockOut,
-      breakStartTime1: userBreakStart,
-      breakEndTime1: userBreakEnd,
-      // 다른 휴식 시간 필드는 필요시 추가
+    // 임시 레코드 생성하여 breakMinutes 및 workingHours 계산
+    const tempRecord = {
+      clockInTime,
+      clockOutTime,
+      breakStartTime1,
+      breakEndTime1
     };
 
-    const breakMinutes4 = calculateBreakMinutes(timeRecordData);
-    const workingHours4 = calculateWorkingHours(timeRecordData);
+    const breakMinutes = calculateBreakMinutes(tempRecord);
+    const workingHours = calculateWorkingHours(tempRecord);
 
-    // 시간과 분 표시를 위한 계산 (로깅용)
-    const hours = Math.floor(workingHours4);
-    const minutes = Math.round((workingHours4 - hours) * 100);
+    console.log(`계산된 휴식 시간: ${breakMinutes}분`);
+    console.log(`계산된 근무 시간: ${workingHours} (${Math.floor(workingHours)}시간 ${Math.round((workingHours - Math.floor(workingHours)) * 100)}분)`);
 
-    // upsert 사용: 기존 레코드가 있으면 업데이트, 없으면 생성
-    const timeRecord4 = await prisma.timeRecord.upsert({
+    // upsert를 사용하여 기존 레코드가 있으면 업데이트하고, 없으면 생성
+    const timeRecord = await prisma.timeRecord.upsert({
       where: {
         userId_date: {
-          userId: USER_ID.JAEYOUNG,
-          date: '05-03-2025'
+          userId,
+          date: testDate
         }
       },
       update: {
-        locationId: Sorrel,
-        clockInTime: userClockIn,
-        breakStartTime1: userBreakStart,
-        breakEndTime1: userBreakEnd,
-        clockOutTime: userClockOut,
-        breakMinutes: breakMinutes4,
-        workingHours: workingHours4,
-        status: 'completed',
-        createdAt: getNSWDateWithTimezone()
+        locationId: 10, // 위치 ID 10 사용
+        clockInTime,
+        clockOutTime,
+        breakStartTime1,
+        breakEndTime1,
+        breakMinutes,
+        workingHours,
+        status: 'completed'
+        // createdAt은 업데이트하지 않음
       },
       create: {
-        userId: USER_ID.JAEYOUNG,
-        locationId: Sorrel,
-        date: '05-03-2025',
-        clockInTime: userClockIn,
-        breakStartTime1: userBreakStart,
-        breakEndTime1: userBreakEnd,
-        clockOutTime: userClockOut,
-        breakMinutes: breakMinutes4,
-        workingHours: workingHours4,
+        userId,
+        date: testDate,
+        locationId: 10, // 위치 ID 10 사용
+        clockInTime,
+        clockOutTime,
+        breakStartTime1,
+        breakEndTime1,
+        breakMinutes,
+        workingHours,
         status: 'completed',
         createdAt: getNSWDateWithTimezone()
       }
     });
 
-    console.log(`${USER_NAME.JAEYOUNG} 출퇴근 기록 생성/업데이트 완료:`, timeRecord4);
-    console.log(`근무 시간: ${hours}시간 ${minutes}분 (${workingHours4})`);
-    
+    console.log('생성/업데이트된 테스트 레코드:', timeRecord);
   } catch (error) {
-    console.error('출퇴근 기록 생성 중 오류 발생:', error);
+    console.error('테스트 레코드 생성 중 오류 발생:', error);
   } finally {
     await prisma.$disconnect();
   }
 }
 
-createTimeRecords()
-  .then(() => console.log('출퇴근 기록 생성 완료'))
-  .catch(e => console.error(e)); 
+createTestRecord()
+  .then(() => console.log('테스트 레코드 생성 완료'))
+  .catch(e => console.error('스크립트 실행 오류:', e)); 

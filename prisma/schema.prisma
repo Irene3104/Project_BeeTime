@@ -57,33 +57,25 @@ model LocationUser {
 }
 
 model TimeRecord {
-  id             Int      @id @default(autoincrement())
-  userId         String
-  
-  locationId     Int
-  date           String   @db.VarChar(10)
-
-  clockInTime    String?   @db.VarChar(5)
-  clockOutTime   String?  @db.VarChar(5)
-  
-  breakStartTime1 String?  @db.VarChar(5)
+  id              Int      @id @default(autoincrement())
+  userId          String
+  locationId      Int
+  status          String   @db.VarChar(50)
+  note            String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  breakMinutes    Int      @default(0)
+  clockInTime     String?  @db.VarChar(5)
+  clockOutTime    String?  @db.VarChar(5)
+  workingHours    Float    @default(0)
+  date            String   @db.VarChar(10)
   breakEndTime1   String?  @db.VarChar(5)
- 
-  breakStartTime2 String?  @db.VarChar(5)
   breakEndTime2   String?  @db.VarChar(5)
-  
-  breakStartTime3 String?  @db.VarChar(5)
   breakEndTime3   String?  @db.VarChar(5)
-
-  breakMinutes   Int      @default(0)
-  workingHours   Float    @default(0)
-  
-  location       Location @relation(fields: [locationId], references: [id])
-  user           User     @relation(fields: [userId], references: [id])
-
-  status         String   @db.VarChar(50)
-  note           String?
-  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  breakStartTime1 String?  @db.VarChar(5)
+  breakStartTime2 String?  @db.VarChar(5)
+  breakStartTime3 String?  @db.VarChar(5)
+  location        Location @relation(fields: [locationId], references: [id])
+  user            User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, date])
   @@index([date])
@@ -123,7 +115,7 @@ model Report {
   locationId Int?
   creatorId  String
   createdAt  DateTime  @default(now()) @db.Timestamp(6)
-  updatedAt  DateTime  @updatedAt @db.Timestamp(6) 
+  updatedAt  DateTime  @updatedAt @db.Timestamp(6)
   User       User      @relation(fields: [creatorId], references: [id])
   Location   Location? @relation(fields: [locationId], references: [id])
 

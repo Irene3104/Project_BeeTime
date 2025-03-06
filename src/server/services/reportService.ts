@@ -84,37 +84,34 @@ export class ReportService {
           const breakHours = Math.floor(record.breakMinutes / 60);
           const breakMins = record.breakMinutes % 60;
           const breakTimeFormatted = `${breakHours}h ${breakMins}m`;
-          
+        
           // DB의 workingHours 값 파싱 (8.01 => 8시간 1분)
           let workingHoursFormatted = "0h 0m";
           let workingHoursDecimal = 0;
-          
+        
           if (record.workingHours) {
-            // 소수점 앞은 시간, 소수점 뒤는 분으로 해석
+            // 기존 파싱 로직 (8.01 형식에서 8시간 1분으로 변환)
             const whString = record.workingHours.toString();
             const parts = whString.split('.');
-            
+        
             const hours = parseInt(parts[0]);
+            // 분 부분의 처리
             let minutes = 0;
-            
             if (parts.length > 1) {
-              // 소수점 뒷부분이 10의 자리인지 1의 자리인지 구분
-              const decimalPart = parts[1];
-              if (decimalPart.length === 1) {
-                // 1.1 => 1시간 10분
-                minutes = parseInt(decimalPart) * 10;
+              // 소수점 이하가 1자리면 (예: .1 -> 10분), 2자리면 그대로 (예: .01 -> 1분, .30 -> 30분)
+              if (parts[1].length === 1) {
+                minutes = parseInt(parts[1]) * 10;
               } else {
-                // 1.01 => 1시간 1분
-                minutes = parseInt(decimalPart);
+                minutes = parseInt(parts[1]);
               }
             }
-            
+        
             workingHoursFormatted = `${hours}h ${minutes}m`;
-            
-            // 10진수 형식으로 변환 (10h 30m => 10.5)
-            workingHoursDecimal = hours + (minutes / 60);
+        
+            // 10진수 변환 (8h 30m → 8.5)
+            workingHoursDecimal = parseFloat((hours + (minutes / 60)).toFixed(2));
           }
-          
+        
           return {
             date: record.date,
             name: record.user?.name || 'N/A',
