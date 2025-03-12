@@ -12,10 +12,7 @@
     "build-server": "npx tsc --project tsconfig.server.json",
     "init-workplaces": "tsx scripts/workplace-data.ts",
     "init-admin": "tsx scripts/admin.ts",
-    "init-timerecords": "tsx scripts/generateTestData.ts",
-    "reset-users": "tsx scripts/resetUsers.ts",
-    "createTimeRecords": "tsx scripts/createTimeRecords.ts",
-    "clearTimeRecords": "tsx scripts/clearTimeRecords.ts",
+    "createTimeRecord": "tsx scripts/createTimeRecord.ts",
     "add-location": "tsx scripts/add-location.ts",
     "generate-qr": "tsx scripts/generate-qr.ts",
     "start": "NODE_ENV=production NODE_NO_WARNINGS=1 tsx src/server/index.ts"

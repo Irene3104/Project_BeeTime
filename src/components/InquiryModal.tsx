@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Logo from '../assets/logo_bee3.png';
 import { API_URL } from '../config/constants';
 
@@ -7,11 +7,24 @@ interface InquiryModalProps {
   onClose: () => void;
 }
 
+interface UserInfo {
+  id?: string;
+  name?: string;
+  email?: string;
+}
+
 const inquiryTypes = [
   { value: 'system_issue', label: 'System Issue' },
   { value: 'time_record', label: 'Ask for Time Record Modification' },
   { value: 'others', label: 'Others' }
 ];
+
+// 카테고리 한글 레이블 매핑
+const inquiryTypeLabels: Record<string, string> = {
+  'system_issue': '시스템 이슈',
+  'time_record': '타임 레코드 수정 요청',
+  'others': '기타 문의'
+};
 
 export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) => {
   const [title, setTitle] = useState('');
@@ -19,6 +32,38 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) =
   const [content, setContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userInfo, setUserInfo] = useState<UserInfo>({});
+
+  // 컴포넌트 마운트 시 사용자 정보 가져오기
+  useEffect(() => {
+    async function fetchUserInfo() {
+      try {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch(`${API_URL}/api/user/me`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const userData = await response.json();
+          setUserInfo({
+            id: userData.id,
+            name: userData.name,
+            email: userData.email
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch user info:', error);
+      }
+    }
+
+    if (isOpen) {
+      fetchUserInfo();
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -45,6 +90,10 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) =
     
     try {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const submissionTime = new Date().toISOString();
+      
+      // 문의 유형의 한글 레이블 가져오기
+      const inquiryTypeLabel = inquiryTypeLabels[inquiryType] || inquiryType;
       
       const response = await fetch(`${API_URL}/inquiries`, {
         method: 'POST',
@@ -55,7 +104,15 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) =
         body: JSON.stringify({
           title,
           type: inquiryType,
-          content
+          typeLabel: inquiryTypeLabel,
+          content,
+          submittedAt: submissionTime,
+          // 사용자 정보 포함
+          user: {
+            id: userInfo.id,
+            name: userInfo.name || 'Unknown',
+            email: userInfo.email || 'No email provided'
+          }
         })
       });
       
@@ -104,6 +161,14 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) =
         {error && (
           <div className="mb-4 text-sm text-red-500">
             {error}
+          </div>
+        )}
+        
+        {/* User Info Display */}
+        {userInfo.name && (
+          <div className="mb-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
+            <p className="text-sm text-gray-600"><strong>User:</strong> {userInfo.name}</p>
+            {userInfo.email && <p className="text-sm text-gray-600"><strong>Email:</strong> {userInfo.email}</p>}
           </div>
         )}
         

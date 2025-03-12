@@ -21,19 +21,19 @@ const getNSWDateWithTimezone = (): Date => {
 
 async function createTestRecord() {
   try {
-    console.log('테스트 시간 기록 생성 시작...');
+    console.log('근무 시간 기록 생성 시작...');
 
     // tsjyono@gmail.com 사용자 정보
-    const userId = 'aa628090-5fc6-44ac-acd7-fe394d84faca';
-    const testDate = new Date().toISOString().split('T')[0].split('-').reverse().join('-'); // 오늘 날짜 DD-MM-YYYY 형식
+    const userId = '5ce9526b-ec44-4cb8-b1c2-53d0a150789b';
+    const testDate = '11-03-2025'; // 오늘 날짜 DD-MM-YYYY 형식
     
     // 시간 정보
-    const clockInTime = '08:29';
-    const clockOutTime = '17:01';
-    const breakStartTime1 = '10:15';
-    const breakEndTime1 = '10:45';
+    const clockInTime = '08:28';
+    const clockOutTime = '15:11';
+    const breakStartTime1 = '10:50';
+    const breakEndTime1 = '11:20';
     
-    console.log(`테스트 날짜: ${testDate}`);
+    console.log(`Date: ${testDate}`);
     
     // 시간 문자열을 분으로 변환하는 함수
     const convertTimeToMinutes = (time: string): number => {
@@ -143,14 +143,14 @@ async function createTestRecord() {
       }
     });
 
-    console.log('생성/업데이트된 테스트 레코드:', timeRecord);
+    console.log('생성/업데이트된 근무시간 레코드:', timeRecord);
   } catch (error) {
-    console.error('테스트 레코드 생성 중 오류 발생:', error);
+    console.error('근무시간 레코드 생성 중 오류 발생:', error);
   } finally {
     await prisma.$disconnect();
   }
 }
 
 createTestRecord()
-  .then(() => console.log('테스트 레코드 생성 완료'))
+  .then(() => console.log('근무시간 레코드 생성 완료'))
   .catch(e => console.error('스크립트 실행 오류:', e)); 

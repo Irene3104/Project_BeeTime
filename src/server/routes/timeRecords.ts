@@ -159,59 +159,63 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
     
-    // 날짜 문자열로 변환 (DD-MM-YYYY 형식으로 통일)
-    const formattedStartDate = format(new Date(startDate), 'dd/MM/yyyy');
-    const formattedEndDate = format(new Date(endDate), 'dd/MM/yyyy');
+    // 날짜 문자열로 변환 (DB 형식과 일치하도록 하이픈 사용)
+    const formattedStartDate = format(new Date(startDate), 'dd-MM-yyyy');
+    const formattedEndDate = format(new Date(endDate), 'dd-MM-yyyy');
     
     console.log(`[Report API] Date range: ${formattedStartDate} to ${formattedEndDate}`);
     console.log(`[Report API] Location ID: ${locationId || 'All Locations'}`);
 
-    // 타임레코드 조회 조건 설정
-    const where: any = {};
-    
-    // 날짜 범위 설정 (문자열 비교 대신 날짜 객체 사용)
-    const startDateObj = new Date(startDate);
-    const endDateObj = new Date(endDate);
-    startDateObj.setHours(0, 0, 0, 0);
-    endDateObj.setHours(23, 59, 59, 999);
-    
-    where.date = {
-      gte: formattedStartDate,
-      lte: formattedEndDate
-    };
-    
+    // 타임레코드 조회 - raw SQL 쿼리 사용
+    let timeRecords;
     if (locationId) {
-      where.locationId = parseInt(locationId);
+      // 특정 위치에 대한 쿼리
+      timeRecords = await prisma.$queryRaw`
+        SELECT t.*, 
+          u.name as "userName", u.email as "userEmail", u.title as "userTitle",
+          l.name as "locationName", l.branch as "locationBranch"
+        FROM "TimeRecord" t
+        LEFT JOIN "User" u ON t."userId" = u.id
+        LEFT JOIN "Location" l ON t."locationId" = l.id
+        WHERE TO_DATE(t.date, 'DD-MM-YYYY') 
+          BETWEEN TO_DATE(${formattedStartDate}, 'DD-MM-YYYY') 
+          AND TO_DATE(${formattedEndDate}, 'DD-MM-YYYY')
+        AND t."locationId" = ${parseInt(locationId)}
+        ORDER BY TO_DATE(t.date, 'DD-MM-YYYY') ASC
+      ` as any[];
+    } else {
+      // 모든 위치에 대한 쿼리
+      timeRecords = await prisma.$queryRaw`
+        SELECT t.*, 
+          u.name as "userName", u.email as "userEmail", u.title as "userTitle",
+          l.name as "locationName", l.branch as "locationBranch"
+        FROM "TimeRecord" t
+        LEFT JOIN "User" u ON t."userId" = u.id
+        LEFT JOIN "Location" l ON t."locationId" = l.id
+        WHERE TO_DATE(t.date, 'DD-MM-YYYY') 
+          BETWEEN TO_DATE(${formattedStartDate}, 'DD-MM-YYYY') 
+          AND TO_DATE(${formattedEndDate}, 'DD-MM-YYYY')
+        ORDER BY TO_DATE(t.date, 'DD-MM-YYYY') ASC
+      ` as any[];
     }
 
-    console.log('[Report API] Query conditions:', JSON.stringify(where));
-
-    // 타임레코드 데이터 조회
-    const timeRecords = await prisma.timeRecord.findMany({
-      where,
-      include: {
-        user: {
-          select: {
-            name: true,
-            email: true,
-            title: true
-          }
-        },
-        location: {
-          select: {
-            name: true,
-            branch: true
-          }
-        }
+    // 결과 데이터 구조 변환 (Prisma 구조와 일치하도록)
+    const processedRecords = timeRecords.map(record => ({
+      ...record,
+      user: {
+        name: record.userName,
+        email: record.userEmail,
+        title: record.userTitle
       },
-      orderBy: {
-        date: 'asc'
+      location: {
+        name: record.locationName,
+        branch: record.locationBranch
       }
-    });
+    }));
 
-    console.log(`[Report API] Found ${timeRecords.length} records`);
+    console.log(`[Report API] Found ${processedRecords.length} records`);
     
-    if (timeRecords.length === 0) {
+    if (processedRecords.length === 0) {
       return res.status(404).json({ error: 'No records found for the specified period' });
     }
 
@@ -232,10 +236,10 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
 
     console.log('[Report API] Calling ReportService.generateAttendanceReport');
     try {
-      const excelBuffer = await ReportService.generateAttendanceReport(timeRecords);
+      const excelBuffer = await ReportService.generateAttendanceReport(processedRecords);
       console.log('[Report API] Excel buffer generated, size:', excelBuffer.byteLength, 'bytes');
 
-      // 파일명 생성
+      // 파일명 생성 (형식 통일)
       const fileName = `${locationName} Report_${formattedStartDate} ~ ${formattedEndDate}.xlsx`;
       
       // 리포트 정보를 데이터베이스에 저장
@@ -268,7 +272,6 @@ router.post('/reports/generate', authenticate, isAdmin, async (req, res) => {
         locationName: locationName,
         createdAt: report.createdAt.toISOString(),
         updatedAt: report.updatedAt.toISOString()
-
       });
     } catch (error: any) {
       console.error('[Report API] Error in Excel generation:', error);
