@@ -299,7 +299,7 @@ export const Account: React.FC = () => {
             className="w-full shadow-[0_4px_10px_rgba(0,0,0,0.08) ]"
             onClick={() => setIsInquiryModalOpen(true)}
             >
-            <div className="bg-[#FDCF17] rounded-3xl p-4 cursor-pointer hover:bg-[#f5f5f5] transition-colors duration-200 ">
+            <div className="bg-[#FDCF17] rounded-3xl p-4 cursor-pointer transition-colors duration-200 ">
               <div className="text-center text-gray-700 font-bold text-sm">
                 Help & Support
               </div>

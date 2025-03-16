@@ -2,6 +2,9 @@ import express, { Request, Response } from 'express';
 import nodemailer from 'nodemailer';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 // 정확한 경로와 파일명으로 수정
 // import { authenticateToken } from '../middleware/authenticate';
 
@@ -26,6 +29,11 @@ interface AuthRequest extends Request {
   user?: any;
 }
 
+// Request에 files 프로퍼티 확장
+interface MulterRequest extends Request {
+  files?: Express.Multer.File[] | { [fieldname: string]: Express.Multer.File[] };
+}
+
 // 이메일 전송을 위한 트랜스포터 설정
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -33,6 +41,54 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER || 'beetimeapp@gmail.com',
     pass: process.env.EMAIL_PASSWORD // Gmail 앱 비밀번호
   }
+});
+
+// 파일 업로드를 위한 디렉토리 설정
+const uploadDir = path.join(process.cwd(), 'uploads');
+
+// uploads 디렉토리가 없으면 생성
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// 파일 저장소 설정
+const storage = multer.diskStorage({
+  destination: function (req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) {
+    cb(null, uploadDir);
+  },
+  filename: function (req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
+    // 원본 파일명에서 확장자 추출
+    const ext = path.extname(file.originalname);
+    // 타임스탬프 + 랜덤문자열 + 확장자로 파일명 생성
+    cb(null, `${Date.now()}-${Math.random().toString(36).substring(2, 15)}${ext}`);
+  }
+});
+
+// 파일 필터링 (허용 파일 타입 설정)
+const fileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  // 허용할 파일 형식
+  const allowedTypes = [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
+    'application/pdf',
+    'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // Word
+    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' // Excel
+  ];
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('지원하지 않는 파일 형식입니다.'));
+  }
+};
+
+// Multer 설정 적용
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+    files: 3 // 최대 파일 개수
+  },
+  fileFilter: fileFilter
 });
 
 /**
@@ -101,11 +157,26 @@ async function getUserById(userId: string) {
 
 /**
  * @route POST /inquiries
- * @desc 사용자 문의 제출 및 이메일 전송
+ * @desc 사용자 문의 제출 및 이메일 전송 (첨부파일 지원)
  * @access Public (인증 미들웨어 제거)
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', upload.array('attachments', 3), async (req: Request, res: Response) => {
   try {
+    // multer에 의해 추가된 files 속성에 접근 (타입 단언 사용)
+    const files = (req as MulterRequest).files as Express.Multer.File[] || [];
+    
+    // 폼 데이터에서 JSON 데이터 파싱
+    let inquiryData;
+    try {
+      inquiryData = JSON.parse(req.body.data || '{}');
+    } catch (error) {
+      console.error('JSON 파싱 에러:', error);
+      return res.status(400).json({
+        success: false,
+        message: '잘못된 데이터 형식입니다.'
+      });
+    }
+    
     const { 
       title, 
       type, 
@@ -113,13 +184,20 @@ router.post('/', async (req: Request, res: Response) => {
       content, 
       submittedAt,
       user: clientUser // 프론트엔드에서 전송한 사용자 정보 (백업용)
-    } = req.body;
+    } = inquiryData;
     
     // 요청 데이터 검증
     if (!title || !type || !content) {
+      // 업로드된 파일이 있으면 삭제
+      if (files && files.length > 0) {
+        files.forEach(file => {
+          fs.unlinkSync(file.path);
+        });
+      }
+      
       return res.status(400).json({ 
         success: false, 
-        message: 'All fields are required' 
+        message: '모든 필드를 입력해주세요.' 
       });
     }
     
@@ -155,6 +233,13 @@ router.post('/', async (req: Request, res: Response) => {
       return type;
     })();
     
+    // 첨부파일 정보 구성
+    const attachments = files.map(file => ({
+      filename: path.basename(file.path),
+      path: file.path,
+      contentType: file.mimetype
+    }));
+    
     // 이메일 옵션 설정 - 향상된 템플릿
     const mailOptions = {
       from: process.env.EMAIL_USER || 'beetimeapp@gmail.com',
@@ -179,6 +264,7 @@ router.post('/', async (req: Request, res: Response) => {
               <h3 style="margin-top: 0; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 10px;">문의 세부 정보</h3>
               <p><strong>제목:</strong> ${title}</p>
               <p><strong>문의 유형:</strong> ${inquiryTypeDisplay}</p>
+              ${attachments.length > 0 ? `<p><strong>첨부파일:</strong> ${attachments.length}개</p>` : ''}
             </div>
             
             <div style="background-color: #f5f5f5; padding: 15px; border-radius: 8px;">
@@ -192,7 +278,9 @@ router.post('/', async (req: Request, res: Response) => {
             <p>© ${new Date().getFullYear()} BeeTime App</p>
           </div>
         </div>
-      `
+      `,
+      // 첨부파일이 있으면 이메일에 첨부
+      attachments: attachments.length > 0 ? attachments : undefined
     };
     
     // 이메일 전송
@@ -201,14 +289,34 @@ router.post('/', async (req: Request, res: Response) => {
     // 성공 응답
     res.status(200).json({ 
       success: true, 
-      message: 'Inquiry submitted successfully' 
+      message: '문의가 성공적으로 제출되었습니다',
+      attachments: files.map(file => ({
+        filename: file.originalname,
+        size: file.size,
+        mimetype: file.mimetype
+      }))
     });
   } catch (error) {
     console.error('Error submitting inquiry:', error);
+    
+    // 업로드된 파일이 있으면 삭제 시도 (에러 시)
+    try {
+      const files = (req as MulterRequest).files as Express.Multer.File[] || [];
+      if (files && files.length > 0) {
+        files.forEach(file => {
+          if (fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+        });
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up files:', cleanupError);
+    }
+    
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to submit inquiry',
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      message: '문의 제출에 실패했습니다',
+      error: error instanceof Error ? error.message : '알 수 없는 오류' 
     });
   }
 });

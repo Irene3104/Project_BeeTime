@@ -24,14 +24,14 @@ async function createTestRecord() {
     console.log('근무 시간 기록 생성 시작...');
 
     // tsjyono@gmail.com 사용자 정보
-    const userId = '5ce9526b-ec44-4cb8-b1c2-53d0a150789b';
-    const testDate = '11-03-2025'; // 오늘 날짜 DD-MM-YYYY 형식
+    const userId = '25bd10f3-5d46-40a2-9351-88e66072fddb';
+    const testDate = '16-03-2025'; // 오늘 날짜 DD-MM-YYYY 형식
     
     // 시간 정보
     const clockInTime = '08:28';
-    const clockOutTime = '15:11';
-    const breakStartTime1 = '10:50';
-    const breakEndTime1 = '11:20';
+    const clockOutTime = '17:00';
+    const breakStartTime1 = '12:35';
+    const breakEndTime1 = '13:04';
     
     console.log(`Date: ${testDate}`);
     

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Logo from '../assets/logo_bee3.png';
 import { API_URL } from '../config/constants';
 
@@ -11,6 +11,12 @@ interface UserInfo {
   id?: string;
   name?: string;
   email?: string;
+}
+
+// 첨부파일 인터페이스 추가
+interface AttachmentFile {
+  file: File;
+  previewUrl: string;
 }
 
 const inquiryTypes = [
@@ -33,6 +39,9 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) =
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userInfo, setUserInfo] = useState<UserInfo>({});
+  // 첨부파일 상태 추가
+  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 컴포넌트 마운트 시 사용자 정보 가져오기
   useEffect(() => {
@@ -65,23 +74,70 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) =
     }
   }, [isOpen]);
 
+  // 파일 업로드 처리 함수
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const newAttachments: AttachmentFile[] = [];
+    
+    // 파일 갯수 제한 (최대 3개)
+    if (attachments.length + files.length > 3) {
+      setError('Maximum 3 files can be attached.');
+      return;
+    }
+
+    // 파일 크기 제한 (각 파일 5MB 이하)
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      
+      if (file.size > 5 * 1024 * 1024) {
+        setError('Each file must be 5MB or less.');
+        return;
+      }
+      
+      // 미리보기 URL 생성
+      const previewUrl = URL.createObjectURL(file);
+      newAttachments.push({ file, previewUrl });
+    }
+
+    setAttachments([...attachments, ...newAttachments]);
+    setError(null);
+    
+    // 파일 인풋 초기화
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // 첨부파일 제거 함수
+  const removeAttachment = (index: number) => {
+    const newAttachments = [...attachments];
+    
+    // 미리보기 URL 해제
+    URL.revokeObjectURL(newAttachments[index].previewUrl);
+    
+    newAttachments.splice(index, 1);
+    setAttachments(newAttachments);
+  };
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!title.trim()) {
-      setError('Please enter a title');
+      setError('Please enter a title.');
       return;
     }
     
     if (!inquiryType) {
-      setError('Please select an inquiry type');
+      setError('Please select an inquiry type.');
       return;
     }
     
     if (!content.trim()) {
-      setError('Please enter your inquiry content');
+      setError('Please enter your inquiry content.');
       return;
     }
     
@@ -92,43 +148,57 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) =
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       const submissionTime = new Date().toISOString();
       
-      // 문의 유형의 한글 레이블 가져오기
-      const inquiryTypeLabel = inquiryTypeLabels[inquiryType] || inquiryType;
+      // FormData 객체 생성하여 파일과 데이터 포함
+      const formData = new FormData();
+      
+      // JSON 데이터 추가
+      const inquiryData = {
+        title,
+        type: inquiryType,
+        typeLabel: inquiryTypeLabels[inquiryType] || inquiryType,
+        content,
+        submittedAt: submissionTime,
+        user: {
+          id: userInfo.id,
+          name: userInfo.name || 'Unknown',
+          email: userInfo.email || 'No email provided'
+        }
+      };
+      
+      formData.append('data', JSON.stringify(inquiryData));
+      
+      // 첨부 파일 추가
+      attachments.forEach((attachment, index) => {
+        formData.append('attachments', attachment.file);
+      });
       
       const response = await fetch(`${API_URL}/inquiries`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          title,
-          type: inquiryType,
-          typeLabel: inquiryTypeLabel,
-          content,
-          submittedAt: submissionTime,
-          // 사용자 정보 포함
-          user: {
-            id: userInfo.id,
-            name: userInfo.name || 'Unknown',
-            email: userInfo.email || 'No email provided'
-          }
-        })
+        body: formData
       });
       
       if (!response.ok) {
         throw new Error('Failed to submit inquiry');
       }
       
-      // Reset form
+      // 폼 초기화
       setTitle('');
       setInquiryType('');
       setContent('');
       
-      // Close modal
+      // 첨부 파일 정리
+      attachments.forEach(attachment => {
+        URL.revokeObjectURL(attachment.previewUrl);
+      });
+      setAttachments([]);
+      
+      // 모달 닫기
       onClose();
       
-      // Show success message
+      // 성공 메시지 표시
       alert('Your inquiry has been submitted successfully!');
     } catch (error) {
       console.error('Error submitting inquiry:', error);
@@ -213,7 +283,7 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) =
             </select>
           </div>
           
-          <div className="mb-6">
+          <div className="mb-4">
             <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="content">
               Content:
             </label>
@@ -224,6 +294,69 @@ export const InquiryModal: React.FC<InquiryModalProps> = ({ isOpen, onClose }) =
               className="w-full border rounded-lg px-3 py-2 text-sm h-32 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
               placeholder="Describe your inquiry in detail..."
             />
+          </div>
+          
+          {/* 첨부파일 영역 추가 */}
+          <div className="mb-6">
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              Attachments:
+            </label>
+            
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 px-4 rounded-lg flex items-center text-sm mr-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                Choose Files
+              </button>
+              <span className="text-xs text-gray-500">Max 3 files, 5MB each</span>
+            </div>
+            
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={handleFileChange}
+              className="hidden"
+              multiple
+              accept="image/*, application/pdf, .doc, .docx, .xls, .xlsx"
+            />
+            
+            {/* 첨부파일 미리보기 */}
+            {attachments.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {attachments.map((attachment, index) => (
+                  <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg border border-gray-200">
+                    <div className="flex items-center">
+                      {/* 파일 아이콘으로 통일 */}
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 text-gray-500">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                      </svg>
+                      <span className="text-sm truncate max-w-[180px]">{attachment.file.name}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(index)}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           
           <button
