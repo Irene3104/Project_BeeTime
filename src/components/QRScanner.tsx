@@ -16,8 +16,6 @@ interface QRScannerProps {
 }
 
 
-
-
 export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, offlineMode = false, debugMode = false, skipLocationCheck = false }) => {
   const navigate = useNavigate();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -124,54 +122,95 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       
       console.log("카메라 권한 획득 성공, 스캐너 시작");
       
-      // 카메라 ID 사용 방식으로 변경 (iOS에서 더 안정적)
+      // 후면 카메라 강제 선택을 위한 개선된 접근 방식
       try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const cameras = devices.filter(device => device.kind === 'videoinput');
+        // 첫 번째 시도: 정확한 environment 모드로 시도 (가장 강력한 제약)
+        console.log("1차 시도: exact environment 모드로 카메라 시작");
+        await html5QrCode.start(
+          { facingMode: { exact: "environment" } },
+          config,
+          onScanSuccess,
+          onScanFailure
+        );
+        console.log("exact environment 모드로 카메라 시작 성공!");
+        return; // 성공하면 함수 종료
+      } catch (exactEnvError) {
+        console.log("exact environment 모드 실패, 대체 방법 시도:", exactEnvError);
         
-        if (cameras.length > 0) {
-          // 후면 카메라 우선 선택 (iOS에서는 후면 카메라가 더 안정적)
-          let selectedCamera = cameras[0].deviceId; // 기본값
-          
-          // 가능하면 "back" 또는 "environment"가 포함된 카메라 찾기
-          for (const camera of cameras) {
-            if (camera.label.toLowerCase().includes('back') || 
-                camera.label.toLowerCase().includes('environment')) {
-              selectedCamera = camera.deviceId;
-              break;
-            }
-          }
-          
-          console.log(`사용할 카메라 ID: ${selectedCamera}`);
-          
-          await html5QrCode.start(
-            { deviceId: { exact: selectedCamera } },
-            config,
-            onScanSuccess,
-            onScanFailure
-          );
-        } else {
-          // 카메라 ID를 찾을 수 없으면 기본 facingMode 사용
-          console.log("카메라 ID를 찾을 수 없음, facingMode로 대체");
+        try {
+          // 두 번째 시도: 일반 environment 모드로 시도 (덜 제한적)
+          console.log("2차 시도: 일반 environment 모드로 카메라 시작");
           await html5QrCode.start(
             { facingMode: "environment" },
             config,
             onScanSuccess,
             onScanFailure
           );
+          console.log("일반 environment 모드로 카메라 시작 성공!");
+          return; // 성공하면 함수 종료
+        } catch (envError) {
+          console.log("일반 environment 모드 실패, deviceId 접근법 시도:", envError);
+          
+          // 세 번째 시도: deviceId 방식으로 후면 카메라 찾기
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const cameras = devices.filter(device => device.kind === 'videoinput');
+          
+          if (cameras.length === 0) {
+            throw new Error("카메라를 찾을 수 없습니다");
+          }
+          
+          console.log(`사용 가능한 카메라: ${cameras.length}개`);
+          cameras.forEach((camera, index) => {
+            console.log(`카메라 ${index}: ${camera.label || '레이블 없음'} (${camera.deviceId})`);
+          });
+          
+          // 후면 카메라를 찾기 위한 개선된 방법
+          let selectedCamera = null;
+          
+          // 1. 레이블에 후면 카메라 관련 키워드가 있는지 확인 (다국어 지원)
+          const backCameraKeywords = ['back', 'rear', 'environment', '후면', '外', 'trasero', 'arrière', 'задняя', 'hinten'];
+          for (const camera of cameras) {
+            const label = camera.label.toLowerCase();
+            if (backCameraKeywords.some(keyword => label.includes(keyword))) {
+              selectedCamera = camera.deviceId;
+              console.log(`키워드로 후면 카메라 찾음: ${camera.label}`);
+              break;
+            }
+          }
+          
+          // 2. 여러 개의 카메라가 있는 경우 마지막 카메라 선택 (대부분의 기기에서 후면 카메라)
+          if (!selectedCamera && cameras.length > 1) {
+            selectedCamera = cameras[cameras.length - 1].deviceId;
+            console.log(`여러 카메라 중 마지막 카메라 선택 (인덱스: ${cameras.length - 1})`);
+          }
+          
+          // 3. 그래도 없으면 첫 번째 카메라 사용
+          if (!selectedCamera) {
+            selectedCamera = cameras[0].deviceId;
+            console.log("대안이 없어 첫 번째 카메라 사용");
+          }
+          
+          try {
+            await html5QrCode.start(
+              { deviceId: { exact: selectedCamera } },
+              config,
+              onScanSuccess,
+              onScanFailure
+            );
+            console.log(`deviceId 방식으로 카메라 시작 성공! (ID: ${selectedCamera})`);
+          } catch (deviceIdError) {
+            console.error("deviceId 방식도 실패, 마지막 대안 시도:", deviceIdError);
+            
+            // 마지막 대안: 제약 없이 시도
+            await html5QrCode.start(
+              { facingMode: "user" }, // 아무런 옵션이라도 제공해야 함, 전면 카메라라도 사용
+              config,
+              onScanSuccess,
+              onScanFailure
+            );
+            console.log("제약 없는 방식으로 카메라 시작 성공!");
+          }
         }
-        console.log("카메라 및 스캐너 시작 성공!");
-      } catch (cameraError) {
-        console.error("카메라 ID 방식 실패, facingMode로 재시도:", cameraError);
-        
-        // 카메라 ID 방식 실패 시 facingMode로 재시도
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          config,
-          onScanSuccess,
-          onScanFailure
-        );
-        console.log("facingMode로 카메라 시작 성공!");
       }
     } catch (error) {
       console.error("스캐너 초기화 또는 카메라 접근 오류:", error);
@@ -421,17 +460,17 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
           console.log(`거리: ${distance.toFixed(2)}m`);
           
           // 허용 거리 (예: 100미터)
-          const MAX_ALLOWED_DISTANCE = 100; // 미터 단위
+          const MAX_ALLOWED_DISTANCE = 50; // 미터 단위
           
           if (distance > MAX_ALLOWED_DISTANCE) {
-            throw new Error(`현재 위치가 QR 코드 위치에서 너무 멉니다 (${distance.toFixed(0)}m). 근처에서 다시 시도하세요.`);
+            throw new Error(`You are too far from the QR code location (${distance.toFixed(0)}m). Please try again when you're closer.`);
           }
         } catch (locationError) {
-          if (locationError instanceof Error && locationError.message.includes('현재 위치가 QR 코드 위치에서 너무 멉니다')) {
+          if (locationError instanceof Error && locationError.message.includes('You are too far from the QR code location')) {
             throw locationError; // 위치 거리 오류는 그대로 전달
           }
           console.error('위치 확인 오류:', locationError);
-          throw new Error('위치 정보를 확인할 수 없습니다. 위치 권한을 확인하고 다시 시도하세요.');
+          throw new Error('Unable to verify your location. Please check your location permissions and try again.');
         }
       } else {
         console.log('위치 확인 건너뜀 (skipLocationCheck가 true)');
@@ -521,7 +560,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
   const getCurrentPosition = (): Promise<GeolocationPosition> => {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
-        reject(new Error('이 브라우저에서는 위치 정보를 지원하지 않습니다.'));
+        reject(new Error('Geolocation is not supported in this browser.'));
         return;
       }
       
@@ -567,14 +606,14 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
           });
           
           if (!response.ok) {
-            throw new Error(`Place API 응답 오류: ${response.status}`);
+            throw new Error(`Place API response error: ${response.status}`);
           }
           
           const placeData = await response.json();
           console.log('Place API 응답:', placeData);
           
           if (!placeData.latitude || !placeData.longitude) {
-            throw new Error('위치 정보가 없습니다');
+            throw new Error('No location information available');
           }
           
           return {
@@ -584,11 +623,11 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
           };
         } catch (error) {
           console.error('Place ID 조회 오류:', error);
-          throw new Error('위치 정보를 가져올 수 없습니다');
+          throw new Error('Unable to retrieve location information');
         }
       }
       
-      throw new Error('지원되지 않는 QR 코드 형식입니다');
+      throw new Error('Unsupported QR code format');
     } catch (error) {
       console.error('QR 코드 파싱 오류:', error);
       throw error;
@@ -839,7 +878,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       return data;
     } catch (error) {
       console.error('시간 기록 생성 오류:', error);
-      throw new Error('시간 기록 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.');
+      throw new Error('An error occurred while processing your time record. Please try again later.');
     }
   };
   

@@ -80,29 +80,29 @@ async function main() {
       //   company: 'Juncafe Opera Pty Ltd',
       //   address: 'Broadway Shopping Centre, Bay Street, Broadway NSW 2007'
       // }),
-      // getPlaceIdAndUpsert({
-      //   name: 'Baskin Robbins',
-      //   branch: 'Circular Quay',
-      //   company: 'Ice Opera Pty Ltd',
-      //   address: '61-63 Macquarie Street, Sydney NSW 2000'
-      // }),
-      // getPlaceIdAndUpsert({
-      //   name: 'Baskin Robbins',
-      //   branch: 'Manly',
-      //   company: 'Ice Opera Pty Ltd',
-      //   address: '53 East Esplanade, Manly NSW 2095'
-      // }),
-      // getPlaceIdAndUpsert({
-      //   name: 'Sushi Roll',
-      //   company: 'Top Ryde Sushiroll Pty Ltd',
-      //   address: 'Top Ryde City Shopping Centre, Devlin Street, Ryde NSW 2112'
-      // }),
       getPlaceIdAndUpsert({
-        name: 'Home',
-        company: 'Stephen & Irene Co',
-        address: '50 Audley Street, Petersham NSW 2049'
+        name: 'Baskin Robbins',
+        branch: 'Circular Quay',
+        company: 'Ice Opera Pty Ltd',
+        address: 'Quay Grand, Lot 2/61-63 Macquarie St, Sydney NSW 2000, Australia'
+      }),
+      getPlaceIdAndUpsert({
+        name: 'Baskin Robbins',
+        branch: 'Manly',
+        company: 'Ice Opera Pty Ltd',
+        address: '53 East Esplanade, The Corso, Manly NSW 2095, Australia'
+      }),
+      getPlaceIdAndUpsert({
+        name: 'Sushi Roll',
+        company: 'Top Ryde Sushiroll Pty Ltd',
+        address: 'Top Ryde City Shopping Centre, Devlin Street, Ryde NSW 2112, Australia'
       })
-    ]);
+    //   getPlaceIdAndUpsert({
+    //     name: 'Home',
+    //     company: 'Stephen & Irene Co',
+    //     address: '50 Audley Street, Petersham NSW 2049'
+    //   })
+     ]);
 
     console.log('처리된 위치 정보:', locations.map(loc => ({
       id: loc.id,

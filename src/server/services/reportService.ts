@@ -109,7 +109,9 @@ export class ReportService {
             workingHoursFormatted = `${hours}h ${minutes}m`;
         
             // 10진수 변환 (8h 30m → 8.5)
-            workingHoursDecimal = parseFloat((hours + (minutes / 60)).toFixed(2));
+            // 반올림하지 않고 소수점 3자리까지 표시
+            const decimalValue = hours + (minutes / 60);
+            workingHoursDecimal = parseFloat((Math.floor(decimalValue * 1000) / 1000).toFixed(3));
           }
         
           return {
@@ -161,7 +163,7 @@ export class ReportService {
             
             // 숫자 값 컬럼은 숫자 형식으로 설정
             if (colIndex === 15) {
-              cell.numFmt = '0.0';
+              cell.numFmt = '0.000';
             }
           }
         }
@@ -188,7 +190,7 @@ export class ReportService {
             // SUM 함수 추가
             const formula = `SUM(O2:O${sumRowIndex - 1})`;
             cell.value = { formula: formula };
-            cell.numFmt = '0.0';
+            cell.numFmt = '0.000';
             cell.font = { bold: true };
           }
         }
