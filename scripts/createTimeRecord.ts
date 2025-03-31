@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-
+import { USER } from '../src/constants/users';
 const prisma = new PrismaClient();
 
 // 시드니 시간대 생성 함수
@@ -24,14 +24,14 @@ async function createTestRecord() {
     console.log('근무 시간 기록 생성 시작...');
 
     // tsjyono@gmail.com 사용자 정보
-    const userId = '25bd10f3-5d46-40a2-9351-88e66072fddb';
-    const testDate = '16-03-2025'; // 오늘 날짜 DD-MM-YYYY 형식
+    const userId = USER.SAKURA.id;
+    const testDate = '30-03-2025'; // 오늘 날짜 DD-MM-YYYY 형식
     
     // 시간 정보
-    const clockInTime = '08:28';
+    const clockInTime = '09:30';
     const clockOutTime = '17:00';
-    const breakStartTime1 = '12:35';
-    const breakEndTime1 = '13:04';
+    const breakStartTime1 = '13:38';
+    const breakEndTime1 = '14:01';
     
     console.log(`Date: ${testDate}`);
     

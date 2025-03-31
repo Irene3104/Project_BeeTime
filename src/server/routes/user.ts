@@ -23,6 +23,7 @@ router.get('/info', authenticate, async (req, res) => {
             id: true,
             name: true,
             branch: true,
+            placeId: true
           },
         },
       },

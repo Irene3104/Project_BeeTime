@@ -16,6 +16,7 @@ interface UserInfo {
   email: string;
   location: {
     name: string;
+    branch?: string;
   };
 }
 
@@ -102,7 +103,10 @@ export const Account: React.FC = () => {
       if (isEditing === 'name') {
         updateData = { name: editValue };
       } else if (isEditing === 'workPlace') {
-        const selectedLocation = locations.find(loc => loc.name === editValue);
+        const selectedLocation = locations.find(loc => 
+          `${loc.name} ${loc.branch ? `(${loc.branch})` : ''}` === editValue
+        );
+        
         if (!selectedLocation) {
           throw new Error('Failed to find selected location.');
         }
@@ -128,7 +132,8 @@ export const Account: React.FC = () => {
         ...prev!,
         name: updatedUser.name,
         location: {
-          name: updatedUser.location?.name || ''
+          name: updatedUser.location.name,
+          branch: updatedUser.location.branch
         }
       }));
       
@@ -258,11 +263,14 @@ export const Account: React.FC = () => {
                     className="w-full border rounded-lg px-3 py-2 text-sm appearance-none"
                   >
                     <option value="" disabled>Select Work Place</option>
-                    {locations.map((location) => (
-                      <option key={location.id} value={location.name}>
-                        {location.name} {location.branch ? `(${location.branch})` : ''}
-                      </option>
-                    ))}
+                    {locations.map((location) => {
+                      const fullName = `${location.name} ${location.branch ? `(${location.branch})` : ''}`;
+                      return (
+                        <option key={location.id} value={fullName}>
+                          {fullName}
+                        </option>
+                      );
+                    })}
                   </select>
                   <button 
                     onClick={handleEdit} 
@@ -279,11 +287,14 @@ export const Account: React.FC = () => {
                 </div>
               ) : (
                 <div className="flex justify-between items-center flex-1 ml-2">
-                  <span className="font-montserrat text-sm">{userInfo?.location?.name || '-'}</span>
+                  <span className="font-montserrat text-sm">
+                    {userInfo?.location?.name} {userInfo?.location?.branch ? `(${userInfo.location.branch})` : ''}
+                  </span>
                   <button 
                     onClick={() => {
                       setIsEditing('workPlace');
-                      setEditValue(userInfo?.location?.name || '');
+                      const fullName = `${userInfo?.location?.name} ${userInfo?.location?.branch ? `(${userInfo.location.branch})` : ''}`;
+                      setEditValue(fullName);
                     }}
                     className="p-2.5 hover:bg-gray-100 rounded-full"
                   >

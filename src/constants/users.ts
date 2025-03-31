@@ -31,8 +31,11 @@ export const USER = {
   AYOUNG: {
     id: '6480f13a-e189-496d-9bdc-932d40e7e5ac',
     name: 'AYOUNG HEON'
+  },
+  HEYJEONG: {
+    id: '09036b9a-f8fb-433e-b30a-e8a1c8b394e5',
+    name: 'Heyjeong'
   }
-
 } as const;
 
 // ID만 포함하는 객체
@@ -44,7 +47,8 @@ export const USER_ID = {
   SEOYOON: 'ccf6ddde-3a05-4d72-bb2d-076fc60e0099',
   IRENE: 'f97e67c1-5231-4775-8a08-2ff10f0ff738',
   SAKURA: '5ce9526b-ec44-4cb8-b1c2-53d0a150789b',
-  AYOUNG: '6480f13a-e189-496d-9bdc-932d40e7e5ac'
+  AYOUNG: '6480f13a-e189-496d-9bdc-932d40e7e5ac',
+  HEYJEONG: '09036b9a-f8fb-433e-b30a-e8a1c8b394e5'
 } as const;
 
 // 이름만 포함하는 객체
@@ -56,5 +60,8 @@ export const USER_NAME = {
   SEOYOON: 'Seoyoon Kim',
   IRENE: 'Irene Kim',
   SAKURA: 'Sakura Takubo',
-  AYOUNG: 'AYOUNG HEON'
+  AYOUNG: 'AYOUNG HEON',
+  HEYJEONG: 'Heyjeong'
 } as const; 
+
+
