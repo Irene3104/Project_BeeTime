@@ -139,7 +139,11 @@ export const Employees = () => {
       const direction = sortOption.direction === 'asc' ? 1 : -1;
       if (sortOption.field === 'name') return a.name.localeCompare(b.name) * direction;
       if (sortOption.field === 'title') return ((a.title || '') > (b.title || '') ? 1 : -1) * direction;
-      if (sortOption.field === 'location') return (a.location?.name || '').localeCompare(b.location?.name || '') * direction;
+      if (sortOption.field === 'location') {
+        const locationA = `${a.location?.name || ''} ${a.location?.branch || ''}`.trim();
+        const locationB = `${b.location?.name || ''} ${b.location?.branch || ''}`.trim();
+        return locationA.localeCompare(locationB) * direction;
+      }
       return 0;
     });
 
