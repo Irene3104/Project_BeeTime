@@ -15,6 +15,138 @@ interface QRScannerProps {
   skipLocationCheck?: boolean;
 }
 
+/***************************************************************************/
+/** =================== 임시 코드 변경 (시작) ========================== **/
+/** QR 코드가 데이터베이스의 location 테이블에 있는지 확인하는 함수입니다. **/
+/***************************************************************************/
+// DB의 location 테이블에서 placeID 검증하는 함수
+const verifyPlaceIdInDatabase = async (placeId: string): Promise<boolean> => {
+  try {
+    console.log('2. 장소 ID 데이터베이스 검증 시작:', placeId);
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    
+    // 서버에 placeID 검증 요청 - 경로 수정
+    const response = await fetch(`${API_URL}/qr/verify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ qrData: placeId })
+    });
+    
+    // 응답 데이터 파싱
+    const data = await response.json();
+    console.log('2-1. 장소 ID 데이터베이스 검증 결과:', data);
+    
+    // 서버에서 검증 결과 반환
+    return data.success === true;
+  } catch (error) {
+    console.error('장소 ID 검증 중 오류:', error);
+    return false;
+  }
+};
+
+// 로그인한 유저의 locationId를 가져오는 함수
+const getUserLocationId = async (): Promise<number | null> => {
+  try {
+    console.log('2-2. 사용자의 location ID 가져오기 시작');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    
+    console.log('2-2-1. 토큰 확인:', token ? '토큰 있음' : '토큰 없음');
+    
+    if (!token) {
+      console.error('토큰이 없습니다.');
+      return null;
+    }
+    
+    // 사용자 정보 가져오기 - 엔드포인트 수정: /api/users/:id → /user/info
+    console.log('2-2-4. 사용자 정보 API 호출 시작:', `${API_URL}/user/info`);
+    const response = await fetch(`${API_URL}/user/info`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('2-2-5. 사용자 정보 API 응답 상태:', response.status, response.statusText);
+    
+    if (!response.ok) {
+      console.error(`사용자 정보 가져오기 실패 (상태: ${response.status})`);
+      try {
+        const errorText = await response.text();
+        console.error('2-2-6. 오류 응답:', errorText);
+      } catch (e) {
+        console.error('2-2-7. 오류 응답 읽기 실패');
+      }
+      return null;
+    }
+    
+    const userData = await response.json();
+    console.log('2-3. 사용자 정보 조회 완료:', userData);
+    
+    // location 객체에서 id를 가져옴
+    const locationId = userData.location?.id;
+    console.log(`2-4. 사용자의 location ID: ${locationId}`);
+    
+    return locationId ? Number(locationId) : null;
+  } catch (error) {
+    console.error('사용자 위치 정보 가져오기 오류:', error);
+    return null;
+  }
+};
+
+// 위치 ID(placeId)가 사용자의 locationId에 해당하는지 확인하는 함수
+const verifyPlaceIdMatchesUserLocation = async (placeId: string): Promise<boolean> => {
+  try {
+    console.log('3. 사용자 위치와 QR 코드 위치 일치 여부 확인 시작');
+    
+    // 토큰 가져오기
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    
+    if (!token) {
+      console.error('토큰이 없습니다.');
+      return false;
+    }
+    
+    // 사용자 정보 가져오기 (location 정보 포함)
+    console.log('3-1. 사용자 정보 및 위치 정보 가져오기');
+    const response = await fetch(`${API_URL}/user/info`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`사용자 정보 가져오기 실패 (상태: ${response.status})`);
+      return false;
+    }
+    
+    const userData = await response.json();
+    console.log('3-2. 사용자 정보 조회 완료:', userData);
+    
+    // 사용자 위치 정보 추출
+    if (!userData.location) {
+      console.error('3-3. 사용자에게 위치 정보가 없음');
+      return false;
+    }
+    
+    console.log(`3-4. 사용자 위치 정보: ID=${userData.location.id}, 이름=${userData.location.name}, placeId=${userData.location.placeId}`);
+    
+    // QR 코드와 사용자 위치의 placeId 직접 비교
+    const isMatch = userData.location.placeId === placeId;
+    console.log(`3-5. 위치 일치 여부: ${isMatch ? '일치함 ✓' : '일치하지 않음 ✗'} (QR: ${placeId}, 유저: ${userData.location.placeId})`);
+    
+    return isMatch;
+  } catch (error) {
+    console.error('위치 매칭 검증 오류:', error);
+    return false;
+  }
+};
+/***************************************************************************/
+/** =================== 임시 코드 변경 (끝) ============================ **/
+/***************************************************************************/
 
 export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, offlineMode = false, debugMode = false, skipLocationCheck = false }) => {
   const navigate = useNavigate();
@@ -375,7 +507,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
     }
 
     try {
-      console.log('QR 코드 스캔 성공 - 처리 시작:', decodedText);
+      console.log('1. QR 코드 스캔 성공 - 처리 시작:', decodedText);
       setIsProcessing(true);
       scanCooldown.current = true;
       lastScannedCode.current = decodedText;
@@ -394,29 +526,55 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
         });
       }, 150);
       
-      // QR 코드 처리 로직 - 코드 파싱만 먼저 수행
-      console.log('QR 코드 파싱 시작...');
-      const qrLocation = await parseQRLocation(decodedText);
-      if (!qrLocation) {
-        throw new Error('QR 코드 파싱 실패');
+      // QR 코드 값 정리
+      const trimmedQrCode = decodedText.trim();
+      console.log('1-1. 정리된 QR 코드 값:', trimmedQrCode);
+      
+      // 1. QR 코드가 데이터베이스에 등록된 장소 ID인지 검증
+      const isValidPlaceId = await verifyPlaceIdInDatabase(trimmedQrCode);
+      
+      if (!isValidPlaceId) {
+        console.log('2-5. 등록되지 않은 장소 ID:', trimmedQrCode);
+        throw new Error('이 QR 코드는 등록된 장소가 아닙니다. 유효한 장소 QR 코드를 스캔해주세요.');
       }
-      console.log('QR 코드 파싱 완료! placeId 획득:', qrLocation.placeId);
+      
+      console.log('2-6. 장소 ID 데이터베이스 검증 성공:', trimmedQrCode);
+      
+      // 2. 로그인한 유저의 location 정보와 QR 코드의 위치가 일치하는지 검증
+      const isUserLocation = await verifyPlaceIdMatchesUserLocation(trimmedQrCode);
+      
+      if (!isUserLocation) {
+        console.log('3-5. 사용자 위치와 일치하지 않는 QR 코드:', trimmedQrCode);
+        throw new Error('이 QR 코드는 귀하의 근무 위치와 일치하지 않습니다. 본인 위치의 QR 코드를 스캔해주세요.');
+      }
+      
+      console.log('3-6. 사용자 위치와 QR 코드 위치 일치 확인 완료');
+      
+      // QR 코드 파싱 간소화 - 모든 QR 코드 값을 유효하게 처리
+      console.log('4. QR 코드 정보 처리 시작');
+      // 어떤 QR 코드든 유효한 위치 정보로 처리
+      const qrLocation = {
+        placeId: trimmedQrCode, // QR 코드 값 그대로 사용
+        latitude: 37.5665, // 기본 위도값 (의미 없음)
+        longitude: 126.9780 // 기본 경도값 (의미 없음)
+      };
+      console.log('4-1. QR 코드 위치 정보 처리 완료:', qrLocation);
       
       // QR 코드에서 필요한 정보(placeId)를 얻었으므로 즉시 카메라 종료
-      console.log('필요한 QR 정보 획득 완료 - 즉시 카메라 종료 시작');
+      console.log('4-2. 필요한 QR 정보 획득 완료 - 카메라 종료 시작');
       
       // 스캐너 즉시 중지 및 숨기기
       if (scannerRef.current) {
         try {
           await scannerRef.current.stop();
-          console.log('스캐너 중지 성공');
+          console.log('4-3. 스캐너 중지 성공');
         } catch (e) {
           console.log('스캐너 중지 중 오류 (무시됨):', e);
         }
         
         try {
           scannerRef.current.clear();
-          console.log('스캐너 정리 성공');
+          console.log('4-4. 스캐너 정리 성공');
         } catch (e) {
           console.log('스캐너 정리 중 무시된 오류:', e);
         }
@@ -428,56 +586,15 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       const scannerContainer = document.getElementById(scannerContainerId);
       if (scannerContainer) {
         scannerContainer.innerHTML = '';
-        console.log('스캐너 DOM 요소 제거됨');
+        console.log('4-5. 스캐너 DOM 요소 제거됨');
       }
       
       // 모든 미디어 트랙 강제 종료
       stopAllMediaTracks();
-      console.log('카메라 종료 완료');
+      console.log('4-6. 카메라 종료 완료');
       
-      // 카메라를 먼저 종료한 후 위치 확인 시작
-      console.log('카메라 종료 완료 - 위치 확인 시작');
-      
-      // skipLocationCheck가 true인 경우에만 위치 확인을 건너뛰고, 
-      // 디버그 모드와 상관없이 위치 확인 수행
-      if (!internalSkipLocationCheck) {
-        try {
-          // 사용자의 현재 위치 가져오기
-          const position = await getCurrentPosition();
-          const userLatitude = position.coords.latitude;
-          const userLongitude = position.coords.longitude;
-          
-          // QR 코드 위치와 사용자 위치 간의 거리 계산 (미터 단위)
-          const distance = calculateDistance(
-            userLatitude, 
-            userLongitude,
-            qrLocation.latitude, 
-            qrLocation.longitude
-          );
-          
-          console.log(`사용자 위치: ${userLatitude}, ${userLongitude}`);
-          console.log(`QR 코드 위치: ${qrLocation.latitude}, ${qrLocation.longitude}`);
-          console.log(`거리: ${distance.toFixed(2)}m`);
-          
-          // 허용 거리 (예: 100미터)
-          const MAX_ALLOWED_DISTANCE = 50; // 미터 단위
-          
-          if (distance > MAX_ALLOWED_DISTANCE) {
-            throw new Error(`You are too far from the QR code location (${distance.toFixed(0)}m). Please try again when you're closer.`);
-          }
-        } catch (locationError) {
-          if (locationError instanceof Error && locationError.message.includes('You are too far from the QR code location')) {
-            throw locationError; // 위치 거리 오류는 그대로 전달
-          }
-          console.error('위치 확인 오류:', locationError);
-          throw new Error('Unable to verify your location. Please check your location permissions and try again.');
-        }
-      } else {
-        console.log('위치 확인 건너뜀 (skipLocationCheck가 true)');
-      }
-
-      // 이 시점에서 스캔 완료 상태로 설정하고 UI 바로 업데이트
-      console.log('위치 확인 완료 - 성공 UI 표시');
+      // 위치 확인 건너뛰고 바로 성공 UI 표시
+      console.log('5. 성공 UI 표시 및 시간 기록 시작');
       setScanCompleted(true); // 스캔 완료 상태로 설정
       setProcessingProgress(90); // 진행률 90%로 표시 (API 호출 전)
       
@@ -487,13 +604,13 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
         progressTimerRef.current = null;
       }
 
-      // 시간 기록 생성 (이제 카메라가 꺼진 상태에서 API 호출 진행)
-      console.log('API 호출 시작 - 타임 레코드 생성');
+      // 시간 기록 생성 (위치 확인 없이 바로 API 호출 진행)
+      console.log('5-1. 시간 기록 API 호출 시작 - 타입:', type);
       const data = await createTimeEntry(type, qrLocation.placeId, {
         latitude: qrLocation.latitude,
         longitude: qrLocation.longitude
       });
-      console.log('API 호출 완료:', data);
+      console.log('5-2. 시간 기록 API 호출 완료:', data);
 
       // 성공 데이터 설정
       setScanSuccess({
@@ -503,17 +620,20 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       
       // 진행률 100%로 표시 (모든 처리 완료)
       setProcessingProgress(100);
+      console.log('5-3. 모든 처리 완료 - 진행률 100%');
       
       // 성공 처리 (데이터 전달)
       onScan(data);
+      console.log('5-4. 성공 처리 완료 - 창 닫기 준비');
       
       // 화면 전환 후 1초 뒤 새로고침 (브라우저 호환성 문제 해결)
       setTimeout(() => {
-        console.log('창 닫기 타이머 실행');
+        console.log('5-5. 창 닫기 타이머 실행');
         onClose();
         
         // 추가: 1초 후 페이지 새로고침
         setTimeout(() => {
+          console.log('5-6. 페이지 새로고침 실행');
           window.location.reload();
         }, 1000);
       }, 800);
@@ -528,6 +648,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       
       console.error('QR 스캔 처리 오류:', error);
       setScanError(error instanceof Error ? error.message : 'An unknown error has occured.');
+      console.log('오류 발생 - 에러 메시지 표시됨');
       
       // 오류 발생 시에도 카메라와 스캐너를 종료 시도
       try {
@@ -536,6 +657,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
           scannerRef.current = null;
         }
         stopAllMediaTracks();
+        console.log('오류 발생 후 카메라 및 스캐너 종료 완료');
       } catch (cleanupError) {
         console.error('오류 후 정리 중 추가 오류:', cleanupError);
       }
@@ -593,6 +715,26 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
     try {
       console.log('파싱 시도할 QR 데이터:', qrData);
       
+      /***************************************************************************/
+      /** =================== 임시 코드 변경 (시작) ========================== **/
+      /** QR 코드 값을 간단히 처리하여 위치 정보를 고정값으로 반환합니다.     **/
+      /** 위치 확인 없이 바로 시간 기록이 가능해집니다.                       **/
+      /***************************************************************************/
+      
+      // 모든 QR 코드를 유효한 것으로 처리
+      console.log('QR 코드 간소화 처리 - 모든 QR 코드를 유효한 것으로 간주');
+      
+      return {
+        placeId: qrData.trim(), // QR 코드 값 그대로 사용
+        latitude: 37.5665, // 기본 위도값 (의미 없음)
+        longitude: 126.9780 // 기본 경도값 (의미 없음)
+      };
+      
+      /***************************************************************************/
+      /** =================== 임시 코드 변경 (끝) ============================ **/
+      /***************************************************************************/
+
+      /* 아래는 기존 코드 (주석 처리)
       if (typeof qrData === 'string' && qrData.trim().startsWith('Ch')) {
         console.log('Google Place ID 감지:', qrData);
         
@@ -628,6 +770,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
       }
       
       throw new Error('Unsupported QR code format');
+      */
     } catch (error) {
       console.error('QR 코드 파싱 오류:', error);
       throw error;
@@ -814,9 +957,11 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
         }
       }
       
-      console.log('서버로 보내는 데이터:', JSON.stringify(requestData, null, 2));
+      console.log('5-1. 서버로 보내는 데이터:', JSON.stringify(requestData, null, 2));
       
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      console.log('5-1-1. 인증 토큰:', token ? '토큰 있음' : '토큰 없음');
+      console.log('5-1-2. API_URL:', API_URL);
       
       if (!API_URL) {
         console.warn('API_URL is temporarily undefined, retrying...');
@@ -824,60 +969,85 @@ export const QRScanner: React.FC<QRScannerProps> = ({ type, onClose, onScan, off
         await new Promise(resolve => setTimeout(resolve, 100));
       }
 
-      // API 요청
-      const response = await fetch(`${API_URL}/api/time-entries`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(requestData)
-      });
-      
-      console.log('서버 응답 상태:', response.status, response.statusText);
-      
-      // 응답 데이터 파싱
-      const responseText = await response.text();
-      console.log('서버 응답 원본:', responseText);
-      
-      let data;
+      console.log('5-1-3. API 요청 준비 - 엔드포인트:', `${API_URL}/api/time-entries/qr-check`);
+      console.log('5-1-4. QR 데이터:', placeId);
+
       try {
-        data = JSON.parse(responseText);
-        console.log('서버 응답 파싱 결과:', data);
-      } catch (e) {
-        console.error('JSON 파싱 오류:', e);
-        throw new Error('서버 응답을 파싱할 수 없습니다: ' + responseText);
+        // API 요청 - 시간 기록 엔드포인트로 요청
+        const response = await fetch(`${API_URL}/api/time-entries/qr-check`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            type: type,
+            qrData: placeId,
+            date: requestData.date
+          })
+        });
+        
+        console.log('5-1-5. 서버 응답 상태:', response.status, response.statusText);
+        console.log('5-1-6. 응답 헤더:', 
+          Array.from(response.headers.entries())
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(', ')
+        );
+        
+        // 응답 데이터 파싱
+        const responseText = await response.text();
+        console.log('5-2. 서버 응답 원본:', responseText);
+        
+        let data;
+        try {
+          data = JSON.parse(responseText);
+          console.log('5-2-1. 서버 응답 파싱 결과:', data);
+        } catch (e) {
+          console.error('5-2-2. JSON 파싱 오류:', e);
+          throw new Error('서버 응답을 파싱할 수 없습니다: ' + responseText);
+        }
+        
+        if (!response.ok) {
+          console.error('5-2-3. 서버 오류 응답:', response.status);
+          throw new Error(data.message || data.error || `서버 오류: ${response.status}`);
+        }
+        
+        console.log('5-2-4. 시간 기록 API 응답 성공');
+        
+        // 성공 시 로컬 스토리지에 액션 저장
+        const userId = localStorage.getItem('userId') || sessionStorage.getItem('userId');
+        const storageKey = `user_${userId}_lastActions`;
+        const storedActionsStr = localStorage.getItem(storageKey) || '{}';
+        let storedActions;
+        
+        try {
+          storedActions = JSON.parse(storedActionsStr);
+        } catch (e) {
+          console.error('저장된 액션 파싱 오류:', e);
+          storedActions = {};
+        }
+        
+        // 액션 저장
+        storedActions[type] = {
+          time: formattedTime,
+          timestamp: now.toISOString()
+        };
+        
+        localStorage.setItem(storageKey, JSON.stringify(storedActions));
+        console.log('5-3. 로컬 스토리지에 저장된 액션:', storedActions);
+        
+        return data;
+      } catch (fetchError) {
+        console.error('5-4. API 요청 중 오류 발생:', fetchError);
+        
+        if (fetchError instanceof TypeError && fetchError.message.includes('Failed to fetch')) {
+          console.error('5-4-1. 네트워크 연결 오류 또는 CORS 문제 발생');
+        }
+        
+        throw fetchError;
       }
-      
-      if (!response.ok) {
-        throw new Error(data.message || data.error || `서버 오류: ${response.status}`);
-      }
-      
-      // 성공 시 로컬 스토리지에 액션 저장
-      const userId = localStorage.getItem('userId') || sessionStorage.getItem('userId');
-      const storageKey = `user_${userId}_lastActions`;
-      const storedActionsStr = localStorage.getItem(storageKey) || '{}';
-      let storedActions;
-      
-      try {
-        storedActions = JSON.parse(storedActionsStr);
-      } catch (e) {
-        console.error('저장된 액션 파싱 오류:', e);
-        storedActions = {};
-      }
-      
-      // 액션 저장
-      storedActions[type] = {
-        time: formattedTime,
-        timestamp: now.toISOString()
-      };
-      
-      localStorage.setItem(storageKey, JSON.stringify(storedActions));
-      console.log('로컬 스토리지에 저장된 액션:', storedActions);
-      
-      return data;
     } catch (error) {
-      console.error('시간 기록 생성 오류:', error);
+      console.error('5-5. 시간 기록 생성 전체 오류:', error);
       throw new Error('An error occurred while processing your time record. Please try again later.');
     }
   };

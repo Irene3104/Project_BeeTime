@@ -5,6 +5,7 @@ import { authRouter } from './routes/auth';
 import {timeEntriesRouter} from './routes/timeEntries';
 import timeRecordsRouter from './routes/timeRecords';
 import { locationRouter } from './routes/locations';
+import { qrRouter } from './routes/qr';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/authenticate';
 import userRouter from './routes/user';
@@ -16,7 +17,7 @@ import 'tzdata';
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -68,6 +69,7 @@ app.use('/auth', authRouter);
 app.use('/user', userRouter);
 app.use('/locations', locationRouter);
 app.use('/timeRecords', timeRecordsRouter);
+app.use('/qr', qrRouter);
 
 app.use('/inquiries', inquiryRoutes); // 경로가 '/api/inquiries'가 아닌 '/inquiries'로 등록되어야 함
 

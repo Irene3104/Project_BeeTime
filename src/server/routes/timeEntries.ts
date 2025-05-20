@@ -2,8 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db';
 import { validateRequest } from '../middleware/validateRequest';
+import { authenticate } from '../middleware/authenticate';
 import { toNSWTime, fromNSWTime, getCurrentNSWTime } from '../../utils/dateTime';
-import { googleMapsClient } from '../services/googleMapsClient';
+import { googleMapsClient as googleMapsService } from '../services/googleMapsClient';
 import { Prisma, Location, TimeRecord } from '@prisma/client';
 import { formatInTimeZone } from 'date-fns-tz';
 import { Client } from '@googlemaps/google-maps-services-js';
@@ -11,8 +12,8 @@ import { Client } from '@googlemaps/google-maps-services-js';
 const router = Router();
 const TIMEZONE = 'Australia/Sydney';
 
-// Google Maps 클라이언트 초기화
-const googleMapsClient = new Client({});
+// Google Maps 클라이언트 초기화 - 이름 변경
+const mapsClient = new Client({});
 
 // 헬퍼 함수들을 라우터 정의 전에 선언
 const convertTimeToMinutes = (time: string): number => {
@@ -966,7 +967,7 @@ router.get('/places/:placeId', async (req, res) => {
     console.log('Place ID 조회 요청:', placeId);
     
     // Google Places API 호출
-    const placeResponse = await googleMapsClient.placeDetails({
+    const placeResponse = await mapsClient.placeDetails({
       params: {
         place_id: placeId,
         fields: ['geometry', 'name', 'formatted_address'],
@@ -1040,6 +1041,267 @@ router.get('/today', async (req, res) => {
     return res.status(500).json({
       error: '서버 오류',
       details: error instanceof Error ? error.message : '알 수 없는 오류'
+    });
+  }
+});
+
+// QR 코드를 통한 시간 기록 API
+router.post('/qr-check', authenticate, async (req: any, res) => {
+  try {
+    const { qrData, type, date } = req.body;
+    const userId = req.user?.id;
+    
+    console.log('[DEBUG/QR] 시간 기록 요청 원본 데이터:', JSON.stringify(req.body));
+    console.log('[DEBUG/QR] 시간 기록 요청 헤더:', JSON.stringify(req.headers));
+    console.log('[DEBUG/QR] 인증 사용자 정보:', req.user ? {
+      id: req.user.id,
+      email: req.user.email,
+      locationId: req.user.locationId
+    } : '인증 정보 없음');
+
+    if (!userId) {
+      console.log('[DEBUG/QR] 인증 실패: 사용자 ID 없음');
+      return res.status(401).json({ 
+        success: false, 
+        message: '인증이 필요합니다' 
+      });
+    }
+
+    console.log('[DEBUG/QR] 시간 기록 요청 파라미터:', { userId, qrData, type, date });
+
+    // 1) QR 코드 유효성 검증
+    if (!qrData) {
+      console.log('[DEBUG/QR] QR 코드 데이터 누락');
+      return res.status(400).json({ success: false, message: 'QR 코드 데이터가 필요합니다' });
+    }
+
+    if (!type || !['clockIn', 'clockOut', 'breakStart1', 'breakEnd1', 'breakStart2', 'breakEnd2', 'breakStart3', 'breakEnd3'].includes(type)) {
+      console.log('[DEBUG/QR] 유효하지 않은 기록 타입:', type);
+      return res.status(400).json({ success: false, message: '유효한 기록 유형이 필요합니다' });
+    }
+
+    // 2) 데이터베이스에서 위치 확인
+    console.log('[DEBUG/QR] 위치 검색 시작, placeId:', qrData);
+    const location = await prisma.location.findFirst({
+      where: { placeId: qrData }
+    });
+    console.log('[DEBUG/QR] 위치 검색 결과:', location ? {
+      id: location.id,
+      name: location.name,
+      placeId: location.placeId
+    } : '찾을 수 없음');
+
+    if (!location) {
+      console.log('[DEBUG/QR] 유효하지 않은 QR 코드:', qrData);
+      return res.status(404).json({ success: false, message: '유효하지 않은 QR 코드입니다' });
+    }
+
+    // 3) 사용자 검증
+    console.log('[DEBUG/QR] 사용자 정보 조회 시작, userId:', userId);
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        location: true,
+        locationUsers: {
+          include: { location: true }
+        }
+      }
+    });
+    console.log('[DEBUG/QR] 사용자 조회 결과:', user ? {
+      id: user.id,
+      email: user.email,
+      locationId: user.locationId,
+      hasDirectLocation: !!user.location,
+      locationName: user.location?.name,
+      locationUsers: user.locationUsers?.length || 0
+    } : '사용자 찾을 수 없음');
+
+    if (!user) {
+      console.log('[DEBUG/QR] 사용자를 찾을 수 없음:', userId);
+      return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다' });
+    }
+
+    // 4) 사용자와 위치 관계 검증
+    let isAuthorized = user.locationId === location.id;
+    console.log('[DEBUG/QR] 기본 위치 권한 확인:', isAuthorized, 
+      '(사용자:', user.locationId, '위치:', location.id, ')');
+    
+    if (!isAuthorized && user.locationUsers) {
+      const locationUserMatches = user.locationUsers.filter(lu => 
+        lu.locationId === location.id && (!lu.endDate || new Date(lu.endDate) > new Date())
+      );
+      isAuthorized = locationUserMatches.length > 0;
+      
+      console.log('[DEBUG/QR] 추가 위치 권한 확인:', {
+        결과: isAuthorized,
+        매칭수: locationUserMatches.length,
+        위치목록: user.locationUsers.map(lu => ({
+          위치ID: lu.locationId,
+          시작일: lu.startDate,
+          종료일: lu.endDate,
+          활성상태: !lu.endDate || new Date(lu.endDate) > new Date()
+        }))
+      });
+    }
+
+    if (!isAuthorized) {
+      console.log('[DEBUG/QR] 권한 없음. 사용자:', userId, '위치:', location.id);
+      return res.status(403).json({ 
+        success: false, 
+        message: '이 위치에서 시간 기록을 할 권한이 없습니다' 
+      });
+    }
+
+    // 5) 현재 시간 가져오기
+    const now = new Date();
+    const currentTime = formatInTimeZone(
+      now,
+      TIMEZONE,
+      'HH:mm'
+    );
+    console.log('[DEBUG/QR] 현재 시간 계산:', {
+      원본시간: now.toISOString(),
+      현지시간: currentTime,
+      타임존: TIMEZONE
+    });
+
+    // QR 코드로 인증된 시간대가 맞으면 시간 기록
+    const recordDate = date || formatInTimeZone(
+      now,
+      TIMEZONE,
+      'yyyy-MM-dd'
+    );
+    console.log('[DEBUG/QR] 기록 날짜:', recordDate);
+
+    // 6) 이미 존재하는 기록이 있는지 확인
+    console.log('[DEBUG/QR] 기존 기록 검색, 사용자:', userId, '날짜:', recordDate);
+    const existingRecord = await prisma.timeRecord.findFirst({
+      where: {
+        userId: userId,
+        date: recordDate
+      }
+    });
+    console.log('[DEBUG/QR] 기존 기록 검색 결과:', existingRecord ? {
+      id: existingRecord.id,
+      상태: existingRecord.status,
+      출근시간: existingRecord.clockInTime,
+      퇴근시간: existingRecord.clockOutTime
+    } : '기존 기록 없음');
+
+    let result;
+    if (existingRecord) {
+      console.log('[DEBUG/QR] 기존 기록 업데이트 시작, 유형:', type);
+      const updateData: Prisma.TimeRecordUpdateInput = {
+        status: 'active'
+      };
+
+      // 동적 필드 설정
+      if (type === 'clockIn') updateData.clockInTime = currentTime;
+      else if (type === 'clockOut') updateData.clockOutTime = currentTime;
+      else if (type === 'breakStart1') updateData.breakStartTime1 = currentTime;
+      else if (type === 'breakEnd1') updateData.breakEndTime1 = currentTime;
+      else if (type === 'breakStart2') updateData.breakStartTime2 = currentTime;
+      else if (type === 'breakEnd2') updateData.breakEndTime2 = currentTime;
+      else if (type === 'breakStart3') updateData.breakStartTime3 = currentTime;
+      else if (type === 'breakEnd3') updateData.breakEndTime3 = currentTime;
+
+      console.log('[DEBUG/QR] 업데이트 데이터:', JSON.stringify(updateData));
+
+      if (type === 'clockOut') {
+        const tempRecord = { 
+          ...existingRecord, 
+          clockOutTime: currentTime 
+        };
+        const breakMinutes = calculateBreakMinutes(tempRecord);
+        const workHours = calculateWorkingHours(tempRecord);
+        
+        console.log('[DEBUG/QR] 퇴근 시간 계산 정보:', {
+          출근시간: existingRecord.clockInTime, 
+          퇴근시간: currentTime,
+          휴식시간_분: breakMinutes,
+          근무시간: workHours
+        });
+        
+        updateData.breakMinutes = breakMinutes;
+        updateData.workingHours = workHours;
+        updateData.status = 'completed';
+      }
+
+      result = await prisma.timeRecord.update({
+        where: { id: existingRecord.id },
+        data: updateData
+      });
+      console.log('[DEBUG/QR] 기록 업데이트 완료:', {
+        id: result.id,
+        상태: result.status,
+        출근시간: result.clockInTime,
+        퇴근시간: result.clockOutTime,
+        기록유형: type
+      });
+    } else {
+      console.log('[DEBUG/QR] 새 기록 생성 시작, 유형:', type);
+      // 새 기록 생성
+      const newData: Prisma.TimeRecordCreateInput = {
+        user: { connect: { id: userId } },
+        location: { connect: { id: location.id } },
+        date: recordDate,
+        status: 'active',
+        breakMinutes: 0,
+        workingHours: 0
+      };
+
+      // 타입에 따라 해당 필드만 설정
+      if (type === 'clockIn') newData.clockInTime = currentTime;
+      else if (type === 'clockOut') newData.clockOutTime = currentTime;
+      else if (type === 'breakStart1') newData.breakStartTime1 = currentTime;
+      else if (type === 'breakEnd1') newData.breakEndTime1 = currentTime;
+      else if (type === 'breakStart2') newData.breakStartTime2 = currentTime;
+      else if (type === 'breakEnd2') newData.breakEndTime2 = currentTime;
+      else if (type === 'breakStart3') newData.breakStartTime3 = currentTime;
+      else if (type === 'breakEnd3') newData.breakEndTime3 = currentTime;
+
+      console.log('[DEBUG/QR] 새 기록 데이터:', JSON.stringify(newData));
+
+      result = await prisma.timeRecord.create({
+        data: newData
+      });
+      console.log('[DEBUG/QR] 새 기록 생성 완료:', {
+        id: result.id, 
+        상태: result.status,
+        출근시간: result.clockInTime,
+        근무일자: result.date
+      });
+    }
+
+    console.log('[DEBUG/QR] 시간 기록 API 완료:', {
+      success: true,
+      type: type,
+      locationId: location.id,
+      locationName: location.name
+    });
+
+    return res.json({
+      success: true,
+      message: `${type === 'clockIn' ? '출근' : 
+                type === 'clockOut' ? '퇴근' : 
+                type.includes('Start') ? '휴식 시작' : '휴식 종료'} 기록 완료`,
+      data: result,
+      location: {
+        id: location.id,
+        name: location.name
+      }
+    });
+
+  } catch (error) {
+    console.error('[DEBUG/QR] 시간 기록 API 오류:', error);
+    // 오류 상세 정보 표시
+    if (error instanceof Error) {
+      console.error('[DEBUG/QR] 오류 메시지:', error.message);
+      console.error('[DEBUG/QR] 오류 스택:', error.stack);
+    }
+    return res.status(500).json({ 
+      success: false,
+      message: '서버 오류가 발생했습니다'
     });
   }
 });

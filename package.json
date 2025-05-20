@@ -4,11 +4,11 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "npx vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "server": "NODE_NO_WARNINGS=1 tsx src/server/index.ts",
+    "server": "npx tsx src/server/index.ts",
     "build-server": "npx tsc --project tsconfig.server.json",
     "init-workplaces": "tsx scripts/workplace-data.ts",
     "init-admin": "tsx scripts/admin.ts",
@@ -16,7 +16,7 @@
     "updateLocationBranch": "tsx scripts/updatelocationBranch.ts",
     "add-location": "tsx scripts/add-location.ts",
     "generate-qr": "tsx scripts/generate-qr.ts",
-    "start": "NODE_ENV=production NODE_NO_WARNINGS=1 tsx src/server/index.ts"
+    "start": "npx tsx src/server/index.ts"
   },
   "dependencies": {
     "@googlemaps/google-maps-services-js": "^3.4.0",
@@ -68,6 +68,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vue/tsconfig": "^0.7.0",
     "autoprefixer": "^10.4.20",
+    "cross-env": "^7.0.3",
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.16",
