@@ -291,47 +291,17 @@ router.post('/locations', authenticate, isAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Name and address are required fields.' });
     }
     
-    // 주소로부터 Place ID 가져오기
-    let placeId = null;
-    try {
-      // Google API 키
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-      
-      // 주소를 인코딩하여 URL에 포함
-      const encodedAddress = encodeURIComponent(address);
-      
-      console.log(`[Admin API] Geocoding address: ${address}`);
-      
-      // Geocoding API를 사용하여 주소를 좌표로 변환
-      const geocodingUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${apiKey}`;
-      const geocodingResponse = await fetch(geocodingUrl);
-      const geocodingData = await geocodingResponse.json();
-      
-      console.log(`[Admin API] Geocoding response status: ${geocodingData.status}`);
-      
-      // 응답 확인
-      if (geocodingData.status === 'OK' && geocodingData.results && geocodingData.results.length > 0) {
-        // 첫 번째 결과에서 Place ID 추출
-        placeId = geocodingData.results[0].place_id;
-        console.log(`[Admin API] Found Place ID: ${placeId}`);
-      } else {
-        console.log(`[Admin API] No Place ID found for address: ${address}`);
-      }
-    } catch (geocodingError) {
-      console.error('[Admin API] Error during geocoding:', geocodingError);
-    }
-    
     // 데이터 객체 생성 (필수 필드만 포함)
     const locationData: any = {
       name,
-      address
+      address,
+      placeId: null
     };
     
     // 선택적 필드는 값이 있을 때만 추가 (null 허용)
     if (branch !== undefined && branch !== '') locationData.branch = branch;
     if (company !== undefined && company !== '') locationData.company = company;
     if (abn !== undefined && abn !== '') locationData.abn = abn;
-    if (placeId) locationData.placeId = placeId;
     
     console.log('[Admin API] Creating location with data:', locationData);
     
@@ -346,44 +316,6 @@ router.post('/locations', authenticate, isAdmin, async (req, res) => {
     console.error('[Admin API] Error creating location:', error);
     res.status(500).json({ 
       error: 'Failed to create location',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-// 주소로부터 Place ID 가져오기 엔드포인트
-router.get('/geocode', authenticate, isAdmin, async (req, res) => {
-  try {
-    const { address } = req.query;
-    
-    if (!address || typeof address !== 'string') {
-      return res.status(400).json({ error: '주소가 필요합니다.' });
-    }
-    
-    // Google API 키
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-    
-    // 주소를 인코딩하여 URL에 포함
-    const encodedAddress = encodeURIComponent(address);
-    
-    // Geocoding API를 사용하여 주소를 좌표로 변환
-    const geocodingUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${apiKey}`;
-    const geocodingResponse = await fetch(geocodingUrl);
-    const geocodingData = await geocodingResponse.json();
-    
-    // 응답 확인
-    if (geocodingData.status !== 'OK' || !geocodingData.results || geocodingData.results.length === 0) {
-      return res.status(404).json({ error: '주소를 찾을 수 없습니다.' });
-    }
-    
-    // 첫 번째 결과에서 Place ID 추출
-    const placeId = geocodingData.results[0].place_id;
-    
-    res.json({ placeId });
-  } catch (error) {
-    console.error('Geocoding error:', error);
-    res.status(500).json({ 
-      error: '지오코딩 실패',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }

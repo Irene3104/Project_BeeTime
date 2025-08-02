@@ -4,16 +4,11 @@ import { prisma } from '../db';
 import { validateRequest } from '../middleware/validateRequest';
 import { authenticate } from '../middleware/authenticate';
 import { toNSWTime, fromNSWTime, getCurrentNSWTime } from '../../utils/dateTime';
-import { googleMapsClient as googleMapsService } from '../services/googleMapsClient';
 import { Prisma, Location, TimeRecord } from '@prisma/client';
 import { formatInTimeZone } from 'date-fns-tz';
-import { Client } from '@googlemaps/google-maps-services-js';
 
 const router = Router();
 const TIMEZONE = 'Australia/Sydney';
-
-// Google Maps 클라이언트 초기화 - 이름 변경
-const mapsClient = new Client({});
 
 // 헬퍼 함수들을 라우터 정의 전에 선언
 const convertTimeToMinutes = (time: string): number => {
@@ -741,27 +736,7 @@ function parseQRLocation(qrData: string): { placeId: string, latitude: number, l
     // 이 경우 서버에서 Place ID로 위치 정보를 조회
     if (/^Ch[A-Za-z0-9_-]{20,}$/.test(qrData)) {
       console.log('Google Place ID 형식 감지:', qrData);
-      
-      // Google Places API를 사용하여 위치 정보 조회
-      // 실제 구현에서는 googleMapsClient를 사용하여 위치 정보를 조회해야 함
-      try {
-        // 여기에 Google Places API 호출 코드 추가
-        // const placeDetails = await googleMapsClient.place({ placeid: qrData }).asPromise();
-        // const location = placeDetails.json.result.geometry.location;
-        
-        // 테스트를 위해 하드코딩된 위치 반환 (실제로는 API 응답 사용)
-        const result = {
-          placeId: qrData,
-          latitude: -33.8568,  // 테스트용 위도
-          longitude: 151.2153  // 테스트용 경도
-        };
-        
-        console.log('Place ID 파싱 성공 (테스트 위치 사용):', result);
-        return result;
-      } catch (e) {
-        console.error('Google Places API 조회 실패:', e);
-        return null;
-      }
+      return null;
     }
     
     // 4. 기타 형식 (추가 형식이 있다면 여기에 구현)
@@ -953,62 +928,6 @@ router.get('/time-entries', async (req, res) => {
   } catch (error) {
     console.error('시간 기록 조회 오류:', error);
     
-    return res.status(500).json({
-      error: '서버 오류',
-      details: error instanceof Error ? error.message : '알 수 없는 오류'
-    });
-  }
-});
-
-// Place ID로 위치 정보 조회 엔드포인트 수정
-router.get('/places/:placeId', async (req, res) => {
-  try {
-    const { placeId } = req.params;
-    console.log('Place ID 조회 요청:', placeId);
-    
-    // Google Places API 호출
-    const placeResponse = await mapsClient.placeDetails({
-      params: {
-        place_id: placeId,
-        fields: ['geometry', 'name', 'formatted_address'],
-        key: process.env.GOOGLE_MAPS_API_KEY || ''
-      }
-    });
-
-    console.log('Google Places API 응답 상태:', placeResponse.data.status);
-    
-    // 응답 데이터의 구조를 자세히 로깅
-    if (placeResponse.data.result && placeResponse.data.result.geometry) {
-      console.log('위치 정보:', JSON.stringify(placeResponse.data.result.geometry.location));
-    } else {
-      console.log('전체 응답 구조:', JSON.stringify(placeResponse.data));
-    }
-
-    if (placeResponse.data.status !== 'OK' || !placeResponse.data.result?.geometry?.location) {
-      console.error('Places API 오류 응답:', placeResponse.data);
-      return res.status(404).json({
-        error: '위치 정보 없음',
-        details: '해당 Place ID의 위치 정보를 찾을 수 없습니다.'
-      });
-    }
-
-    // 위치 정보 직접 접근
-    const location = placeResponse.data.result.geometry.location;
-    const lat = location.lat;
-    const lng = location.lng;
-    
-    console.log('추출된 위치 정보:', { latitude: lat, longitude: lng });
-    
-    // 명시적으로 응답 객체 구성
-    return res.json({
-      placeId: placeId,
-      latitude: lat,
-      longitude: lng,
-      name: placeResponse.data.result.name || '',
-      address: placeResponse.data.result.formatted_address || ''
-    });
-  } catch (error) {
-    console.error('Place ID 조회 오류:', error);
     return res.status(500).json({
       error: '서버 오류',
       details: error instanceof Error ? error.message : '알 수 없는 오류'

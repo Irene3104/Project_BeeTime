@@ -36,7 +36,7 @@ model Location {
   address       String
   createdAt     DateTime       @default(now()) @db.Timestamp(6)
   updatedAt     DateTime       @updatedAt @db.Timestamp(6)
-  placeId       String         @unique
+  placeId       String?
   abn           String?
   locationUsers LocationUser[]
   Report        Report[]

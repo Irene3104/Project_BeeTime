@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { googleMapsClient } from '../services/googleMapsClient';
 
 const router = Router();
 
@@ -27,24 +26,14 @@ router.get('/', async (req, res) => {
 router.get('/:id/details', async (req, res) => {
   try {
     const location = await prisma.location.findUnique({
-      where: { id: parseInt(req.params.id) },
-      include: {
-        placeId: true
-      }
+      where: { id: parseInt(req.params.id) }
     });
 
     if (!location) {
       return res.status(404).json({ error: 'Location not found' });
     }
 
-    const placeDetails = await googleMapsClient.placeDetails({
-      params: {
-        place_id: location.placeId,
-        key: process.env.GOOGLE_MAPS_API_KEY!
-      }
-    });
-
-    res.json(placeDetails.data.result);
+    res.json(location);
   } catch (error) {
     console.error('Error fetching location details:', error);
     res.status(500).json({ error: 'Failed to fetch location details' });

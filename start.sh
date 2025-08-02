@@ -1,4 +1,4 @@
-#!/bin/bash
+k #!/bin/bash
 
 # Shell script to start the server directly
 # This can be used as the start command in Render
