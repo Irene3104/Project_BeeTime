@@ -336,13 +336,11 @@ export const Dashboard = () => {
     setLoading(null);
   };
 
-  // 버튼 비활성화 여부 결정 함수 단순화
+  // 버튼 비활성화 여부 결정 함수
+  // Clock In must be completed before other buttons can be used
   const isButtonDisabled = (type: ActionType): boolean => {
     // 현재 로딩 중인 경우
     if (loading === type) return true;
-    
-    // timeRecord가 없으면 버튼 활성화
-    if (!timeRecord) return false;
     
     // 액션 타입에 따른 필드 이름 매핑
     const fieldMap: Record<ActionType, string> = {
@@ -356,7 +354,18 @@ export const Dashboard = () => {
       'breakEnd3': 'breakEndTime3'
     };
     
-    // 해당 필드에 값이 있으면 버튼 비활성화
+    // Clock In button: only disabled if already recorded
+    if (type === 'clockIn') {
+      return timeRecord && !!timeRecord.clockInTime;
+    }
+    
+    // All other buttons (break start, break end, clock out)
+    // Disabled if Clock In has not been completed yet
+    if (!timeRecord || !timeRecord.clockInTime) {
+      return true;
+    }
+    
+    // 해당 필드에 값이 있으면 버튼 비활성화 (이미 기록된 경우)
     return !!timeRecord[fieldMap[type]];
   };
 
